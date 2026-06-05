@@ -86,10 +86,13 @@ function buildStrokePlans(
 ): StrokePlan[] {
   const plans: StrokePlan[] = []
   let cursor = 0
+  
+  // ★ ここがスピードアップの鍵。1.0でリアルタイム、0.35で約3倍速のサクサク描画になる
+  const SPEED_SCALE = 0.35 
 
   for (const stroke of layout.strokes) {
     if (stroke.isWhitespace) {
-      cursor += whitespacePause(stroke.advance, fontSize)
+      cursor += whitespacePause(stroke.advance, fontSize) * SPEED_SCALE
       continue
     }
 
@@ -104,10 +107,12 @@ function buildStrokePlans(
     const baseDuration = clamp(length / 190, 0.14, 0.95)
     const humanVariance = 0.86 + n1 * 0.34
     const curvePenalty = clamp((stroke.complexity - 2) * 0.018, 0, 0.12)
-    const duration = clamp(baseDuration * humanVariance + curvePenalty, 0.12, 1.08)
+    
+    // スピードスケールを適用
+    const duration = clamp(baseDuration * humanVariance + curvePenalty, 0.12, 1.08) * SPEED_SCALE
 
     const intraStrokeDelay =
-      stroke.strokeIndex === 0 ? 0 : 0.018 + n2 * 0.045
+      (stroke.strokeIndex === 0 ? 0 : 0.018 + n2 * 0.045) * SPEED_SCALE
 
     const delay = cursor + intraStrokeDelay
     const widthVariance = 0.92 + n3 * 0.2
@@ -128,12 +133,12 @@ function buildStrokePlans(
     cursor = Math.max(cursor, delay + duration * 0.72)
 
     if (stroke.isLastStrokeInGlyph) {
-      cursor += 0.012 + seededUnit(seed + 5.19) * 0.035
-      cursor += punctuationPause(stroke.char)
+      cursor += (0.012 + seededUnit(seed + 5.19) * 0.035) * SPEED_SCALE
+      cursor += punctuationPause(stroke.char) * SPEED_SCALE
     }
 
     if (stroke.endOfLine && stroke.isLastStrokeInGlyph) {
-      cursor += 0.25 + seededUnit(seed + 6.02) * 0.08
+      cursor += (0.25 + seededUnit(seed + 6.02) * 0.08) * SPEED_SCALE
     }
   }
 
@@ -258,7 +263,8 @@ export function HandwrittenLetter({
               0.58
             )
 
-            const durationMs = Math.round(clamp(52 + plan.length * 0.42, 60, 180))
+            // 音響側の摩擦音の長さも少しスッキリさせるために短縮調整
+            const durationMs = Math.round(clamp(40 + plan.length * 0.3, 40, 120))
 
             onStrokeImpulse({
               char: plan.stroke.char,

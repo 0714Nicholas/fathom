@@ -44,16 +44,6 @@ function visibilityClass(
   return [base, staggerCls].filter(Boolean).join(' ')
 }
 
-/**
- * Map a letter's created-at timestamp to a discrete age tier (0..5).
- *
- *   0 : within 1 hour      (cyan-blue, untouched)
- *   1 : within 6 hours
- *   2 : within 24 hours
- *   3 : within 3 days
- *   4 : within 14 days
- *   5 : older than 14 days (deep violet, sunk)
- */
 function ageTier(createdAtMs: number, now: number = Date.now()): 0 | 1 | 2 | 3 | 4 | 5 {
   const elapsedMs = Math.max(0, now - createdAtMs)
   const hour = 60 * 60 * 1000
@@ -72,21 +62,88 @@ function ageTierClass(tier: ReturnType<typeof ageTier>): string {
 }
 
 /**
- * DescendBeacon
- *
- * A ceremonial entry control. It only appears before the user has begun
- * their descent. Pressing it kicks off audio and the descent animation.
- * After a brief leave animation, this component unmounts itself.
+ * EntranceStage
+ * Fathomへ入場するための新しい儀礼コンポーネント。
+ * 1. 都市を入力させる
+ * 2. 気象を受信する
+ * 3. 準備が整ったら descend ボタンを浮かび上がらせる
  */
-function DescendBeacon({
+function EntranceStage({
   onDescend,
   isLeaving,
+  targetCity,
+  resolvedCity,
+  isLoading,
+  onSearch,
 }: {
   onDescend: () => void
   isLeaving: boolean
+  targetCity: string
+  resolvedCity: string | null
+  isLoading: boolean
+  onSearch: (city: string) => void
 }) {
+  const [inputVal, setInputVal] = useState('')
+
+  // 1. まだ都市が入力されていない状態（初期画面）
+  if (!targetCity) {
+    return (
+      <div className="descend-stage" aria-hidden={isLeaving}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 }}>
+          <div className="descend-caption" style={{ fontSize: 16, letterSpacing: '0.1em' }}>
+            沿岸都市の喧騒から、深海の静寂へ。
+          </div>
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && inputVal.trim()) {
+                  onSearch(inputVal.trim())
+                }
+              }}
+              className="input"
+              style={{
+                textAlign: 'center',
+                width: '300px',
+                fontSize: '18px',
+                padding: '16px',
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: '4px',
+                color: '#fff',
+                outline: 'none',
+              }}
+              placeholder="e.g. Tokyo, London, New York"
+            />
+          </div>
+          <div className="helper" style={{ letterSpacing: '0.1em' }}>
+            都市を入力し Enter で気象を受信します
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 2. 気象データを解決中
+  if (isLoading || !resolvedCity) {
+    return (
+      <div className="descend-stage" aria-hidden={isLeaving}>
+        <div className="descend-caption" style={{ letterSpacing: '0.15em' }}>
+          resolving atmospheric data for {targetCity}...
+        </div>
+      </div>
+    )
+  }
+
+  // 3. 準備完了（descendが押せる状態）
   return (
     <div className="descend-stage" aria-hidden={isLeaving}>
+      <div className="descend-caption" style={{ marginBottom: 32, opacity: 0.8, letterSpacing: '0.1em' }}>
+        {resolvedCity} の現在の気象を受信しました。
+      </div>
+
       <button
         type="button"
         className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`}
@@ -96,15 +153,13 @@ function DescendBeacon({
         <span className="descend-word">descend</span>
       </button>
 
-      <div className="descend-caption">press to enter the deep</div>
+      <div className="descend-caption" style={{ marginTop: 24, letterSpacing: '0.15em' }}>
+        press to enter the deep
+      </div>
     </div>
   )
 }
 
-/**
- * Wraps a children tree in an aging layer (.with-age .age-tier-N).
- * Pure presentational — no data mutation, no extra DOM logic.
- */
 function AgedLayer({
   createdAtMs,
   asStage,
@@ -127,11 +182,13 @@ function AgedLayer({
 }
 
 export function FathomApp() {
-  const [city, setCity] = useState('Tokyo')
+  // 初期は空文字（＝まだ都市が入力されていない状態）
+  const [city, setCity] = useState('')
   const [draft, setDraft] = useState(
     'the sea keeps our names for a while.\nlisten closely, and it writes back.'
   )
-  const [progress, setProgress] = useState(0.34)
+  // 初期水深は0%からスタート
+  const [progress, setProgress] = useState(0)
   const [composeKey, setComposeKey] = useState(0)
   const [resonancePulse, setResonancePulse] = useState(0)
   const [resonanceEnergy, setResonanceEnergy] = useState(0.14)
@@ -154,6 +211,7 @@ export function FathomApp() {
   const settled = descent >= 1
   const heroPhaseClass = settled ? 'is-settled' : 'is-descending'
 
+  // 空文字の時は fetch しないか、適切にエラーハンドリングされる想定
   const { data, loading, error } = useWeather(city)
 
   const windSpeed = data?.windSpeed ?? 4.2
@@ -179,6 +237,43 @@ export function FathomApp() {
     rainAmount,
     descent,
   })
+
+  // -----------------------------------------------------------------
+  // 自動潜行（入水 ＋ 無限の漂流）ロジック
+  // -----------------------------------------------------------------
+  const driftStartTimeRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!audio.running) {
+      driftStartTimeRef.current = null
+      setProgress(0)
+      return
+    }
+
+    // 最初の8秒で「海面下」まで一気に沈み、都市の騒音を消す
+    const INITIAL_DEPTH = 0.18
+
+    if (!settled) {
+      // descent (0..1) に連動して 0% から 18% へ
+      setProgress(descent * INITIAL_DEPTH)
+    } else {
+      if (!driftStartTimeRef.current) {
+        driftStartTimeRef.current = Date.now()
+      }
+
+      const timer = window.setInterval(() => {
+        const elapsed = Date.now() - driftStartTimeRef.current!
+        const TIME_CONSTANT = 2 * 60 * 60 * 1000 // 時定数：2時間
+
+        // 18% から 100% に向けて、指数関数的に永遠に沈み続ける
+        const currentDepth =
+          INITIAL_DEPTH + (1 - INITIAL_DEPTH) * (1 - Math.exp(-elapsed / TIME_CONSTANT))
+        setProgress(currentDepth)
+      }, 1000)
+
+      return () => window.clearInterval(timer)
+    }
+  }, [audio.running, descent, settled])
 
   const triggerResonance = useCallback((energy: number) => {
     setResonanceEnergy(energy)
@@ -226,16 +321,11 @@ export function FathomApp() {
     firstSurfacingGraceMs: 1600,
   })
 
-  // -----------------------------------------------------------------
-  // Re-render trigger so age tiers gracefully advance during a session.
-  // We don't need perfect granularity: a slow tick is enough for the
-  // tier boundaries to be crossed naturally.
-  // -----------------------------------------------------------------
   const [, setNowTick] = useState(0)
   useEffect(() => {
     const id = window.setInterval(() => {
       setNowTick((n) => (n + 1) % 1_000_000)
-    }, 60_000) // every minute
+    }, 60_000)
     return () => window.clearInterval(id)
   }, [])
 
@@ -320,17 +410,6 @@ export function FathomApp() {
     triggerResonance(0.18)
   }, [audio, beginDescent, triggerResonance])
 
-  // -----------------------------------------------------------------
-  // Aging-wrapped archive + activeLetter helpers
-  // We pass the *full* arrays into LetterInbox unchanged, but for the
-  // archive section we render a wrapping layer per item. To avoid
-  // changing the LetterInbox API, we apply the wrapper to the whole
-  // archive list. Items inside automatically inherit CSS variables.
-  // -----------------------------------------------------------------
-
-  // For the archive list, we use the oldest item's tier as the
-  // "ambient" tier for the surrounding glass. Item-level tinting
-  // can be layered later without changing this contract.
   const archiveAmbientTier: 0 | 1 | 2 | 3 | 4 | 5 = useMemo(() => {
     if (archive.length === 0) return 0
     let oldest = archive[0]
@@ -363,9 +442,13 @@ export function FathomApp() {
       <div className="scene-vignette" />
 
       {beaconMounted ? (
-        <DescendBeacon
+        <EntranceStage
           onDescend={handleDescend}
           isLeaving={beaconLeaving}
+          targetCity={city}
+          resolvedCity={data?.city ?? null}
+          isLoading={loading}
+          onSearch={(c) => setCity(c)}
         />
       ) : null}
 
@@ -412,16 +495,7 @@ export function FathomApp() {
               <div className="panel-inner">
                 <div className="label">Surface Conditions</div>
 
-                <div style={{ marginTop: 14 }}>
-                  <input
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    className="input"
-                    placeholder="Enter a coastal city..."
-                  />
-                </div>
-
-                <div className={`meta-list ${visibilityClass(settled, 1)}`}>
+                <div className={`meta-list ${visibilityClass(settled, 1)}`} style={{ marginTop: 14 }}>
                   <div className="meta-item">
                     <span>resolved city</span>
                     <span>{data?.city ?? (loading ? 'loading...' : '—')}</span>
@@ -458,22 +532,39 @@ export function FathomApp() {
 
                 <div style={{ marginTop: 20 }}>
                   <div className="label">Fathom Depth</div>
-                  <div className="range-inline" style={{ marginTop: 10 }}>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.001}
-                      value={progress}
-                      onChange={(e) => setProgress(Number(e.target.value))}
-                    />
-                    <span className="small" style={{ minWidth: 52 }}>
-                      {Math.round(progress * 100)}%
-                    </span>
+                  
+                  {/* 新しい「観測専用」の水深プログレスバー */}
+                  <div className={`meter-panel ${visibilityClass(settled, 2)}`} style={{ pointerEvents: 'none', marginTop: 10 }}>
+                    <div className="row-between">
+                      <span className="small">WATER DEPTH</span>
+                      <span className="small">{Math.round(progress * 100)}%</span>
+                    </div>
+                    
+                    <div 
+                      className="depth-gauge-bg" 
+                      style={{
+                        width: '100%',
+                        height: '4px',
+                        backgroundColor: 'rgba(255,255,255,0.1)',
+                        borderRadius: '2px',
+                        marginTop: '8px',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      <div 
+                        className="depth-gauge-fill"
+                        style={{
+                          width: `${progress * 100}%`,
+                          height: '100%',
+                          backgroundColor: 'rgba(143, 216, 255, 0.8)',
+                          transition: 'width 1s linear'
+                        }}
+                      />
+                    </div>
                   </div>
 
-                  <div className={`helper ${visibilityClass(settled, 2)}`}>
-                    深く Fathom するほど、ローパスのカットオフが指数的に下降し、結晶は密度を増し、水底からは過去の手紙が静かに浮かび上がります。
+                  <div className={`helper ${visibilityClass(settled, 2)}`} style={{ marginTop: 12 }}>
+                    水底に留まるほど、ローパスのカットオフが指数的に下降し、音はより深く、静かになっていきます。
                   </div>
                 </div>
 
@@ -617,7 +708,7 @@ export function FathomApp() {
                     <HandwrittenLetter
                       animateKey={composeKey}
                       text={composedText}
-                      fontUrl="/fonts/Caveat.ttf"
+                      fontUrl="/fonts/ZenKurenaido.ttf"
                       fontSize={72}
                       lineHeight={104}
                       letterSpacing={1.2}
@@ -654,18 +745,6 @@ export function FathomApp() {
               </div>
             </section>
 
-            {/* -----------------------------------------------------
-                Inbox column wrapped in age layers.
-
-                The activeLetter, if it's an archive item, is shown
-                inside LetterInbox itself — we wrap the whole Inbox
-                instance with the active tier so that the letter
-                stage frame echoes its age.
-
-                The archive list inherits the ambient tier (oldest
-                letter's age) so the section visibly "sinks" as the
-                room grows older.
-                ----------------------------------------------------- */}
             <div className={visibilityClass(settled, 6)}>
               <div
                 className={`with-age ${ageTierClass(activeLetter && activeLetter.source === 'archive' ? activeTier : archiveAmbientTier)}`}
@@ -709,4 +788,3 @@ export function FathomApp() {
     </main>
   )
 }
-
