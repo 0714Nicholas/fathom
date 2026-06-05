@@ -15,4 +15,7 @@ export type ResonanceFieldProps = {
    */
   localResonance: number
   /**
-   * progress (0..1)。深いほどリングが内側に縮みつ
+   * progress (0..1)。深いほどリングが内側に縮みます
+   */
+}
+
