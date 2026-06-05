@@ -99,7 +99,7 @@ export function LetterInbox({
             <HandwrittenLetter
               animateKey={activeLetter.id}
               text={activeLetter.text}
-              fontUrl="/fonts/YourHandwritingFont.otf"
+              fontUrl="/fonts/Caveat.ttf"
               fontSize={70}
               lineHeight={102}
               letterSpacing={1.1}

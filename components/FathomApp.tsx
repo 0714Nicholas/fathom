@@ -617,7 +617,7 @@ export function FathomApp() {
                     <HandwrittenLetter
                       animateKey={composeKey}
                       text={composedText}
-                      fontUrl="/fonts/YourHandwritingFont.otf"
+                      fontUrl="/fonts/Caveat.ttf"
                       fontSize={72}
                       lineHeight={104}
                       letterSpacing={1.2}
