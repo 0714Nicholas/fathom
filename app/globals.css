@@ -1,0 +1,870 @@
+/* ============================================================
+   Fathom :: globals.css
+   ------------------------------------------------------------
+   Sections:
+     0. Variables & reset
+     1. Layout shell
+     2. Hero
+     3. Panels & grid
+     4. Form controls
+     5. Buttons
+     6. Meta lists & status
+     7. Letter stage / handwritten preview
+     8. Meter / helper text
+     9. Inbox (live + archive + active letter)
+    10. Presence pill
+    11. Descent-aware UI (veil / reveal)
+    12. Descend beacon (entry to the deep)
+    13. Reduced motion
+   ============================================================ */
+
+
+/* ---------- 0. Variables & reset ------------------------------------------ */
+
+:root {
+  --bg: #071018;
+  --bg-2: #0b1822;
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel-2: rgba(255, 255, 255, 0.03);
+  --line: rgba(255, 255, 255, 0.1);
+  --text: rgba(235, 245, 252, 0.94);
+  --muted: rgba(235, 245, 252, 0.58);
+  --accent: #8fd8ff;
+  --accent-2: #7db8d6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: #071018;
+  color: var(--text);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+body {
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+
+/* ---------- 1. Layout shell ---------------------------------------------- */
+
+.container {
+  width: min(1180px, calc(100vw - 32px));
+  margin: 0 auto;
+}
+
+.scene-root {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 10%, rgba(27, 73, 102, 0.18), transparent 28%),
+    linear-gradient(180deg, #071018 0%, #071018 48%, #08131d 100%);
+}
+
+.scene-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+.scene-canvas-fallback {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 25%, rgba(33, 88, 122, 0.18), transparent 30%),
+    linear-gradient(180deg, #071018 0%, #08131d 100%);
+}
+
+.scene-overlay {
+  position: relative;
+  z-index: 2;
+  min-height: 100vh;
+  padding: 32px 0 80px;
+}
+
+.scene-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%,
+      transparent 0%,
+      rgba(7, 16, 24, 0.16) 44%,
+      rgba(7, 16, 24, 0.82) 100%),
+    linear-gradient(180deg, rgba(7, 16, 24, 0.14) 0%, rgba(7, 16, 24, 0.34) 100%);
+}
+
+
+/* ---------- 2. Hero ------------------------------------------------------ */
+
+.hero {
+  margin-bottom: 28px;
+}
+
+.hero-floating {
+  padding-top: 8px;
+}
+
+.hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(12px);
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(28px, 5vw, 46px);
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  text-wrap: balance;
+}
+
+.hero p {
+  margin: 12px 0 0;
+  max-width: 760px;
+  color: var(--muted);
+  line-height: 1.85;
+  text-wrap: pretty;
+}
+
+/* Hero "breathes shallower" during descent. */
+.hero.is-descending h1 {
+  letter-spacing: 0.12em;
+  opacity: 0.78;
+  transition:
+    letter-spacing 1600ms ease,
+    opacity 1600ms ease;
+}
+
+.hero.is-descending p {
+  opacity: 0.55;
+  transition: opacity 1600ms ease;
+}
+
+.hero.is-settled h1 {
+  letter-spacing: 0.08em;
+  opacity: 1;
+  transition:
+    letter-spacing 1600ms ease,
+    opacity 1600ms ease;
+}
+
+.hero.is-settled p {
+  opacity: 1;
+  transition: opacity 1600ms ease;
+}
+
+
+/* ---------- 3. Panels & grid -------------------------------------------- */
+
+.panel {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  border-radius: 24px;
+  backdrop-filter: blur(16px);
+  box-shadow:
+    0 12px 38px rgba(0, 0, 0, 0.24),
+    0 0 80px rgba(80, 170, 220, 0.05);
+}
+
+.glass-shell {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.025)),
+    rgba(255, 255, 255, 0.02);
+}
+
+.panel-inner {
+  padding: 20px;
+}
+
+.panel-stack {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 18px;
+}
+
+.panel-stack.three {
+  grid-template-columns: 320px 1fr 1fr;
+}
+
+@media (max-width: 1100px) {
+  .panel-stack.three {
+    grid-template-columns: 360px 1fr;
+  }
+}
+
+@media (max-width: 920px) {
+  .panel-stack,
+  .panel-stack.three {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ---------- 4. Form controls -------------------------------------------- */
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.row-between {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.label {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  border-radius: 16px;
+  outline: none;
+}
+
+.input {
+  padding: 14px 16px;
+}
+
+.textarea {
+  min-height: 150px;
+  padding: 16px;
+  resize: vertical;
+  line-height: 1.9;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: rgba(255, 255, 255, 0.26);
+}
+
+.range-inline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.range-inline input[type='range'] {
+  width: 100%;
+}
+
+
+/* ---------- 5. Buttons -------------------------------------------------- */
+
+.btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-accent {
+  border-color: rgba(143, 216, 255, 0.18);
+  background: rgba(143, 216, 255, 0.09);
+  color: #eef9ff;
+}
+
+
+/* ---------- 6. Meta lists & status -------------------------------------- */
+
+.meta-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.meta-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.meta-item:last-child {
+  border-bottom: none;
+}
+
+.meta-item span:first-child {
+  color: var(--muted);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(143, 216, 255, 0.82);
+  box-shadow: 0 0 12px rgba(143, 216, 255, 0.42);
+}
+
+
+/* ---------- 7. Letter stage / handwritten preview ----------------------- */
+
+.letter-stage {
+  min-height: 280px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(143, 216, 255, 0.06), transparent 30%),
+    rgba(255, 255, 255, 0.02);
+  padding: 18px;
+}
+
+.letter-stage.received {
+  min-height: 320px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(143, 216, 255, 0.08), transparent 35%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.handwritten-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+
+/* ---------- 8. Meter / helper text -------------------------------------- */
+
+.meter {
+  width: 130px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(143, 216, 255, 0.85);
+  transition: width 140ms linear;
+}
+
+.helper {
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.54);
+  line-height: 1.75;
+}
+
+.small {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+
+/* ---------- 9. Inbox (live + archive + active letter) ------------------ */
+
+.inbox-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 220px;
+  border-radius: 18px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 13px;
+  text-align: center;
+  padding: 16px;
+}
+
+.inbox-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 12px;
+}
+
+.inbox-meta .divider {
+  width: 4px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.inbox-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.inbox-item:hover {
+  border-color: rgba(143, 216, 255, 0.22);
+  background: rgba(143, 216, 255, 0.06);
+}
+
+.inbox-item.active {
+  border-color: rgba(143, 216, 255, 0.32);
+  background: rgba(143, 216, 255, 0.08);
+}
+
+.inbox-item-title {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.84);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.inbox-item-meta {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.42);
+  display: flex;
+  gap: 10px;
+}
+
+
+/* ---------- 10. Presence pill ------------------------------------------ */
+
+.presence-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(143, 216, 255, 0.16);
+  background: rgba(143, 216, 255, 0.07);
+  padding: 6px 12px;
+  font-size: 12px;
+  color: rgba(232, 246, 255, 0.85);
+  backdrop-filter: blur(10px);
+}
+
+.presence-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(143, 216, 255, 0.85);
+  box-shadow: 0 0 8px rgba(143, 216, 255, 0.6);
+}
+
+
+/* ---------- 11. Descent-aware UI (veil / reveal) ----------------------- */
+
+/*
+   .ui-veiled       :: invisible while descending (descent < 1)
+   .ui-revealed     :: becomes visible once settled (descent >= 1)
+   .ui-stagger-{n}  :: applies a transition-delay for staggered reveal
+
+   These classes are toggled from FathomApp based on whether the descent
+   has completed. The veiled element keeps its layout footprint so nothing
+   jumps when the UI breathes in.
+*/
+
+.ui-veiled {
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition:
+    opacity 900ms ease,
+    transform 900ms ease;
+}
+
+.ui-revealed {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition:
+    opacity 1200ms ease,
+    transform 1200ms ease;
+}
+
+.ui-stagger-1 { transition-delay: 0ms; }
+.ui-stagger-2 { transition-delay: 220ms; }
+.ui-stagger-3 { transition-delay: 460ms; }
+.ui-stagger-4 { transition-delay: 720ms; }
+.ui-stagger-5 { transition-delay: 1020ms; }
+.ui-stagger-6 { transition-delay: 1380ms; }
+
+
+/* ---------- 12. Descend beacon (entry to the deep) --------------------- */
+
+/*
+   A single ceremonial entry control floating in front of the crystal.
+   Visible only until the user begins their descent. The stage itself is
+   transparent to pointer events; only the button can be clicked.
+*/
+
+.descend-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.descend-beacon {
+  pointer-events: auto;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(143, 216, 255, 0.32);
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(143, 216, 255, 0.16) 0%,
+      rgba(143, 216, 255, 0.04) 60%,
+      rgba(143, 216, 255, 0) 100%),
+    rgba(8, 18, 28, 0.42);
+  color: #eaf6ff;
+  font-size: 13px;
+  letter-spacing: 0.38em;
+  text-transform: lowercase;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition:
+    transform 240ms ease,
+    border-color 240ms ease,
+    background 240ms ease,
+    opacity 600ms ease;
+  transform: translateY(24vh);
+  box-shadow:
+    0 0 0 1px rgba(143, 216, 255, 0.08),
+    0 18px 60px rgba(0, 0, 0, 0.35),
+    0 0 60px rgba(143, 216, 255, 0.12);
+}
+
+.descend-beacon:hover {
+  transform: translateY(24vh) translateY(-1px);
+  border-color: rgba(143, 216, 255, 0.5);
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(143, 216, 255, 0.22) 0%,
+      rgba(143, 216, 255, 0.05) 60%,
+      rgba(143, 216, 255, 0) 100%),
+    rgba(8, 18, 28, 0.5);
+}
+
+.descend-beacon:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.descend-beacon .descend-word {
+  position: relative;
+  z-index: 2;
+}
+
+/* Soft pulse around the beacon, drawn with ::before so DOM stays clean. */
+.descend-beacon::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: 999px;
+  border: 1px solid rgba(143, 216, 255, 0.18);
+  opacity: 0;
+  animation: descend-pulse 4.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes descend-pulse {
+  0%   { opacity: 0;    transform: scale(0.98); }
+  40%  { opacity: 0.55; transform: scale(1.04); }
+  100% { opacity: 0;    transform: scale(1.12); }
+}
+
+/* Leaving animation, applied briefly before React unmounts the beacon. */
+.descend-beacon.is-leaving {
+  opacity: 0;
+  transform: translateY(24vh) translateY(8px);
+  pointer-events: none;
+}
+
+/* Optional caption beneath the beacon. */
+.descend-caption {
+  pointer-events: none;
+  position: absolute;
+  top: calc(50% + 24vh + 56px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-transform: lowercase;
+  color: rgba(232, 246, 255, 0.4);
+  white-space: nowrap;
+}
+
+
+/* ---------- 13. Reduced motion ----------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-veiled,
+  .ui-revealed,
+  .hero.is-descending h1,
+  .hero.is-descending p,
+  .hero.is-settled h1,
+  .hero.is-settled p {
+    transition: none !important;
+  }
+
+  .meter-fill {
+    transition: none !important;
+  }
+
+  .descend-beacon,
+  .descend-beacon::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ---------- 14. Letter Aging ----------------------------------------- */
+
+/* ============================================================
+   Fathom :: Letter Aging
+   ------------------------------------------------------------
+   An archived letter slowly sinks in color. We do not change
+   the letter body's readability — only the surrounding glass:
+   border, meta text, and the subtle inset glow.
+
+   Each .age-tier-N applies CSS custom properties:
+     --age-hue   degrees, gliding from cyan-blue (210) toward
+                 deep violet (278)
+     --age-sat   0..1, decreasing with age
+     --age-lit   0..1, slightly lowering with age
+     --age-mix   0..1, fade strength of the aged tint applied
+                 to inbox-item borders / meta text
+
+   Tiers are quantized for CSS-friendliness. They map roughly to:
+     0  : just sent, within the last hour
+     1  : within 6h
+     2  : within 24h
+     3  : within 3d
+     4  : within 14d
+     5  : older than 14d
+   ============================================================ */
+
+   .age-tier-0 {
+    --age-hue: 210;
+    --age-sat: 0.62;
+    --age-lit: 0.78;
+    --age-mix: 0.00;
+  }
+  
+  .age-tier-1 {
+    --age-hue: 220;
+    --age-sat: 0.55;
+    --age-lit: 0.74;
+    --age-mix: 0.20;
+  }
+  
+  .age-tier-2 {
+    --age-hue: 234;
+    --age-sat: 0.48;
+    --age-lit: 0.70;
+    --age-mix: 0.38;
+  }
+  
+  .age-tier-3 {
+    --age-hue: 250;
+    --age-sat: 0.42;
+    --age-lit: 0.66;
+    --age-mix: 0.56;
+  }
+  
+  .age-tier-4 {
+    --age-hue: 264;
+    --age-sat: 0.38;
+    --age-lit: 0.62;
+    --age-mix: 0.72;
+  }
+  
+  .age-tier-5 {
+    --age-hue: 278;
+    --age-sat: 0.34;
+    --age-lit: 0.58;
+    --age-mix: 0.88;
+  }
+  
+  /* ------------------------------------------------------------
+     .with-age wraps either an inbox list (multiple items) or a
+     single active letter card. Children honor the CSS variables
+     set on the wrapper.
+     ------------------------------------------------------------ */
+  
+  .with-age {
+    transition:
+      color 600ms ease,
+      border-color 600ms ease,
+      background-color 600ms ease;
+  }
+  
+  /* Aged inbox items: border tints toward the aged hue, meta sinks. */
+  .with-age .inbox-item {
+    border-color: color-mix(
+      in oklab,
+      rgba(255, 255, 255, 0.06) calc((1 - var(--age-mix, 0)) * 100%),
+      hsl(var(--age-hue, 210), calc(var(--age-sat, 0.5) * 100%), calc(var(--age-lit, 0.7) * 100%))
+    );
+  
+    background-color: color-mix(
+      in oklab,
+      rgba(255, 255, 255, 0.025) calc((1 - var(--age-mix, 0)) * 100%),
+      hsla(var(--age-hue, 210), calc(var(--age-sat, 0.5) * 100%), 18%, 0.18)
+    );
+  }
+  
+  .with-age .inbox-item:hover {
+    border-color: color-mix(
+      in oklab,
+      rgba(143, 216, 255, 0.22) calc((1 - var(--age-mix, 0)) * 100%),
+      hsl(var(--age-hue, 210), calc(var(--age-sat, 0.5) * 100%), calc(var(--age-lit, 0.7) * 100%))
+    );
+    background-color: color-mix(
+      in oklab,
+      rgba(143, 216, 255, 0.06) calc((1 - var(--age-mix, 0)) * 100%),
+      hsla(var(--age-hue, 210), calc(var(--age-sat, 0.5) * 100%), 18%, 0.28)
+    );
+  }
+  
+  /* Meta text (author, city, time, depth) is where age shows first. */
+  .with-age .inbox-item-meta,
+  .with-age .inbox-meta {
+    color: color-mix(
+      in oklab,
+      rgba(255, 255, 255, 0.42) calc((1 - var(--age-mix, 0)) * 100%),
+      hsla(var(--age-hue, 210), calc(var(--age-sat, 0.5) * 100%), 72%, 0.85)
+    );
+  }
+  
+  /* Title text holds its legibility but receives a quiet aged tint. */
+  .with-age .inbox-item-title {
+    color: color-mix(
+      in oklab,
+      rgba(255, 255, 255, 0.84) calc((1 - var(--age-mix, 0)) * 60%),
+      hsla(var(--age-hue, 210), calc(var(--age-sat, 0.5) * 100%), 86%, 0.95)
+    );
+  }
+  
+  /*
+     When an aged letter is currently being read (active),
+     the surrounding stage frame echoes its age, but the
+     handwritten strokes themselves are NOT recolored —
+     they remain crisp and readable.
+  */
+  .with-age.letter-stage,
+  .with-age .letter-stage {
+    border-color: color-mix(
+      in oklab,
+      rgba(255, 255, 255, 0.06) calc((1 - var(--age-mix, 0)) * 100%),
+      hsl(var(--age-hue, 210), calc(var(--age-sat, 0.5) * 100%), calc(var(--age-lit, 0.7) * 100%))
+    );
+  
+    background:
+      radial-gradient(
+        circle at 50% 0%,
+        hsla(var(--age-hue, 210), calc(var(--age-sat, 0.5) * 100%), 60%, calc(0.06 + var(--age-mix, 0) * 0.08)),
+        transparent 35%
+      ),
+      rgba(255, 255, 255, 0.02);
+  }
+  
+  /*
+     `prefers-reduced-motion` does not need to disable color shifts,
+     but we suppress the long transition to avoid lingering animations.
+  */
+  @media (prefers-reduced-motion: reduce) {
+    .with-age {
+      transition: none !important;
+    }
+  }
+  
