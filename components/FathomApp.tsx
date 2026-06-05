@@ -89,10 +89,8 @@ function EntranceStage({
   if (!targetCity) {
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 }}>
-          <div className="descend-caption" style={{ fontSize: 16, letterSpacing: '0.1em' }}>
-            沿岸都市の喧騒から、深海の静寂へ。
-          </div>
+        {/* pointerEvents: 'auto' を追加し、重複するタイトルテキストを削除 */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
           <div style={{ position: 'relative' }}>
             <input
               type="text"
@@ -130,7 +128,7 @@ function EntranceStage({
   if (isLoading || !resolvedCity) {
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
-        <div className="descend-caption" style={{ letterSpacing: '0.15em' }}>
+        <div className="descend-caption" style={{ letterSpacing: '0.15em', pointerEvents: 'auto' }}>
           resolving atmospheric data for {targetCity}...
         </div>
       </div>
@@ -140,21 +138,24 @@ function EntranceStage({
   // 3. 準備完了（descendが押せる状態）
   return (
     <div className="descend-stage" aria-hidden={isLeaving}>
-      <div className="descend-caption" style={{ marginBottom: 32, opacity: 0.8, letterSpacing: '0.1em' }}>
-        {resolvedCity} の現在の気象を受信しました。
-      </div>
+      {/* pointerEvents: 'auto' を追加してボタンを押せるようにする */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
+        <div className="descend-caption" style={{ marginBottom: 32, opacity: 0.8, letterSpacing: '0.1em' }}>
+          {resolvedCity} の現在の気象を受信しました。
+        </div>
 
-      <button
-        type="button"
-        className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`}
-        onClick={onDescend}
-        disabled={isLeaving}
-      >
-        <span className="descend-word">descend</span>
-      </button>
+        <button
+          type="button"
+          className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`}
+          onClick={onDescend}
+          disabled={isLeaving}
+        >
+          <span className="descend-word">descend</span>
+        </button>
 
-      <div className="descend-caption" style={{ marginTop: 24, letterSpacing: '0.15em' }}>
-        press to enter the deep
+        <div className="descend-caption" style={{ marginTop: 24, letterSpacing: '0.15em' }}>
+          press to enter the deep
+        </div>
       </div>
     </div>
   )
@@ -490,299 +491,302 @@ export function FathomApp() {
             ) : null}
           </header>
 
-          <div className="panel-stack three">
-            <section className="panel glass-shell">
-              <div className="panel-inner">
-                <div className="label">Surface Conditions</div>
+          {/* 🔽 ここが重要！ 潜行を開始するまでは後ろの邪魔なパネル群を隠す */}
+          {hasDescended ? (
+            <div className="panel-stack three">
+              <section className="panel glass-shell">
+                <div className="panel-inner">
+                  <div className="label">Surface Conditions</div>
 
-                <div className={`meta-list ${visibilityClass(settled, 1)}`} style={{ marginTop: 14 }}>
-                  <div className="meta-item">
-                    <span>resolved city</span>
-                    <span>{data?.city ?? (loading ? 'loading...' : '—')}</span>
-                  </div>
-                  <div className="meta-item">
-                    <span>wind</span>
-                    <span>{windSpeed.toFixed(1)} m/s</span>
-                  </div>
-                  <div className="meta-item">
-                    <span>rain</span>
-                    <span>{rainAmount.toFixed(1)} mm</span>
-                  </div>
-                  <div className="meta-item">
-                    <span>clouds</span>
-                    <span>{clouds}%</span>
-                  </div>
-                  <div className="meta-item">
-                    <span>temperature</span>
-                    <span>
-                      {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}
-                    </span>
-                  </div>
-                  <div className="meta-item">
-                    <span>description</span>
-                    <span>{data?.description ?? '—'}</span>
-                  </div>
-                </div>
-
-                {error ? (
-                  <div className={`helper ${visibilityClass(settled, 1)}`}>
-                    weather error: {error}
-                  </div>
-                ) : null}
-
-                <div style={{ marginTop: 20 }}>
-                  <div className="label">Fathom Depth</div>
-                  
-                  {/* 新しい「観測専用」の水深プログレスバー */}
-                  <div className={`meter-panel ${visibilityClass(settled, 2)}`} style={{ pointerEvents: 'none', marginTop: 10 }}>
-                    <div className="row-between">
-                      <span className="small">WATER DEPTH</span>
-                      <span className="small">{Math.round(progress * 100)}%</span>
+                  <div className={`meta-list ${visibilityClass(settled, 1)}`} style={{ marginTop: 14 }}>
+                    <div className="meta-item">
+                      <span>resolved city</span>
+                      <span>{data?.city ?? (loading ? 'loading...' : '—')}</span>
                     </div>
-                    
-                    <div 
-                      className="depth-gauge-bg" 
-                      style={{
-                        width: '100%',
-                        height: '4px',
-                        backgroundColor: 'rgba(255,255,255,0.1)',
-                        borderRadius: '2px',
-                        marginTop: '8px',
-                        overflow: 'hidden'
-                      }}
-                    >
-                      <div 
-                        className="depth-gauge-fill"
-                        style={{
-                          width: `${progress * 100}%`,
-                          height: '100%',
-                          backgroundColor: 'rgba(143, 216, 255, 0.8)',
-                          transition: 'width 1s linear'
-                        }}
-                      />
+                    <div className="meta-item">
+                      <span>wind</span>
+                      <span>{windSpeed.toFixed(1)} m/s</span>
                     </div>
-                  </div>
-
-                  <div className={`helper ${visibilityClass(settled, 2)}`} style={{ marginTop: 12 }}>
-                    水底に留まるほど、ローパスのカットオフが指数的に下降し、音はより深く、静かになっていきます。
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 20 }}>
-                  <div className="label">Audio Control</div>
-                  <div
-                    className={`row ${visibilityClass(settled, 3)}`}
-                    style={{ marginTop: 10 }}
-                  >
-                    <button className="btn" onClick={handleResumeAudio}>
-                      resume
-                    </button>
-                    <button
-                      className="btn"
-                      onClick={() => void audio.suspend()}
-                    >
-                      suspend
-                    </button>
-                    <button className="btn" onClick={() => void audio.stop()}>
-                      stop
-                    </button>
-                  </div>
-
-                  <div
-                    className={`row-between ${visibilityClass(settled, 4)}`}
-                    style={{ marginTop: 14 }}
-                  >
-                    <div className="status">
-                      <span className="dot" />
+                    <div className="meta-item">
+                      <span>rain</span>
+                      <span>{rainAmount.toFixed(1)} mm</span>
+                    </div>
+                    <div className="meta-item">
+                      <span>clouds</span>
+                      <span>{clouds}%</span>
+                    </div>
+                    <div className="meta-item">
+                      <span>temperature</span>
                       <span>
-                        {audio.running
-                          ? 'audio running'
-                          : audio.ready
-                          ? 'audio ready'
-                          : 'audio idle'}
+                        {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}
                       </span>
                     </div>
+                    <div className="meta-item">
+                      <span>description</span>
+                      <span>{data?.description ?? '—'}</span>
+                    </div>
+                  </div>
 
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                      }}
-                    >
-                      <span
-                        className="label"
-                        style={{ letterSpacing: '0.16em' }}
+                  {error ? (
+                    <div className={`helper ${visibilityClass(settled, 1)}`}>
+                      weather error: {error}
+                    </div>
+                  ) : null}
+
+                  <div style={{ marginTop: 20 }}>
+                    <div className="label">Fathom Depth</div>
+                    
+                    <div className={`meter-panel ${visibilityClass(settled, 2)}`} style={{ pointerEvents: 'none', marginTop: 10 }}>
+                      <div className="row-between">
+                        <span className="small">WATER DEPTH</span>
+                        <span className="small">{Math.round(progress * 100)}%</span>
+                      </div>
+                      
+                      <div 
+                        className="depth-gauge-bg" 
+                        style={{
+                          width: '100%',
+                          height: '4px',
+                          backgroundColor: 'rgba(255,255,255,0.1)',
+                          borderRadius: '2px',
+                          marginTop: '8px',
+                          overflow: 'hidden'
+                        }}
                       >
-                        meter
-                      </span>
-                      <div className="meter">
-                        <div
-                          className="meter-fill"
+                        <div 
+                          className="depth-gauge-fill"
                           style={{
-                            width: `${Math.min(audio.meter * 620, 100)}%`,
+                            width: `${progress * 100}%`,
+                            height: '100%',
+                            backgroundColor: 'rgba(143, 216, 255, 0.8)',
+                            transition: 'width 1s linear'
                           }}
                         />
                       </div>
                     </div>
+
+                    <div className={`helper ${visibilityClass(settled, 2)}`} style={{ marginTop: 12 }}>
+                      水底に留まるほど、ローパスのカットオフが指数的に下降し、音はより深く、静かになっていきます。
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 20 }}>
+                    <div className="label">Audio Control</div>
+                    <div
+                      className={`row ${visibilityClass(settled, 3)}`}
+                      style={{ marginTop: 10 }}
+                    >
+                      <button className="btn" onClick={handleResumeAudio}>
+                        resume
+                      </button>
+                      <button
+                        className="btn"
+                        onClick={() => void audio.suspend()}
+                      >
+                        suspend
+                      </button>
+                      <button className="btn" onClick={() => void audio.stop()}>
+                        stop
+                      </button>
+                    </div>
+
+                    <div
+                      className={`row-between ${visibilityClass(settled, 4)}`}
+                      style={{ marginTop: 14 }}
+                    >
+                      <div className="status">
+                        <span className="dot" />
+                        <span>
+                          {audio.running
+                            ? 'audio running'
+                            : audio.ready
+                            ? 'audio ready'
+                            : 'audio idle'}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                        }}
+                      >
+                        <span
+                          className="label"
+                          style={{ letterSpacing: '0.16em' }}
+                        >
+                          meter
+                        </span>
+                        <div className="meter">
+                          <div
+                            className="meter-fill"
+                            style={{
+                              width: `${Math.min(audio.meter * 620, 100)}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={visibilityClass(settled, 5)}
+                    style={{ marginTop: 20 }}
+                  >
+                    <div className="label">Distant Resonance</div>
+                    <div className="helper" style={{ marginTop: 6 }}>
+                      最近、遠くで誰かが筆を入れた気配:
+                    </div>
+                    <div
+                      className="inbox-meta"
+                      style={{
+                        marginTop: 6,
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: 4,
+                      }}
+                    >
+                      {remoteResonanceLog.length === 0 ? (
+                        <span style={{ opacity: 0.55 }}>— 静か —</span>
+                      ) : (
+                        remoteResonanceLog
+                          .slice(-5)
+                          .reverse()
+                          .map((p) => (
+                            <span key={p.at}>
+                              {p.authorName ?? 'anonymous'} ·{' '}
+                              {(p.energy * 100).toFixed(0)}%
+                              {p.city ? ` · ${p.city}` : ''}
+                            </span>
+                          ))
+                      )}
+                    </div>
                   </div>
                 </div>
+              </section>
 
-                <div
-                  className={visibilityClass(settled, 5)}
-                  style={{ marginTop: 20 }}
-                >
-                  <div className="label">Distant Resonance</div>
-                  <div className="helper" style={{ marginTop: 6 }}>
-                    最近、遠くで誰かが筆を入れた気配:
+              <section className="panel glass-shell">
+                <div className="panel-inner">
+                  <div className="row-between">
+                    <div className="label">Compose · Your Letter</div>
+                    <div className={`row ${visibilityClass(settled, 2)}`}>
+                      <button
+                        className="btn"
+                        onClick={handleReplayLocal}
+                        disabled={!canSend && !composedText}
+                      >
+                        replay
+                      </button>
+                      <button
+                        className="btn btn-accent"
+                        onClick={() => void handleSendLetter()}
+                        disabled={!canSend || status !== 'subscribed'}
+                      >
+                        send across the deep
+                      </button>
+                    </div>
                   </div>
+
+                  <div style={{ marginTop: 14 }}>
+                    <textarea
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      className="textarea"
+                      placeholder="Write a quiet letter to send into the Fathom..."
+                    />
+                  </div>
+
+                  <div className={`helper ${visibilityClass(settled, 3)}`}>
+                    送信した手紙は同じ Fathom
+                    に潜る他者へ届き、その後、静かに水底へ沈み、いつか誰かの潜行で再び浮かび上がります。
+                  </div>
+
                   <div
-                    className="inbox-meta"
-                    style={{
-                      marginTop: 6,
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      gap: 4,
-                    }}
+                    className={`letter-stage ${visibilityClass(settled, 4)}`}
+                    style={{ marginTop: 18 }}
                   >
-                    {remoteResonanceLog.length === 0 ? (
-                      <span style={{ opacity: 0.55 }}>— 静か —</span>
+                    {composedText ? (
+                      <HandwrittenLetter
+                        animateKey={composeKey}
+                        text={composedText}
+                        {/* 🔽 フォントパスを構成図に合わせて修正 */}
+                        fontUrl="/fonts/Zen-Kurenaido-Regular.ttf"
+                        fontSize={72}
+                        lineHeight={104}
+                        letterSpacing={1.2}
+                        className="handwritten-svg"
+                        strokeColor="rgba(236,246,255,0.96)"
+                        glowColor="rgba(143,216,255,0.22)"
+                        strokeWidth={2.1}
+                        onStrokeImpulse={(payload) => {
+                          audio.triggerFrictionImpulse({
+                            intensity: payload.intensity,
+                            durationMs: payload.durationMs,
+                            color: 0.84,
+                          })
+                          triggerResonance(Math.max(0.16, payload.intensity))
+                          sendResonance(payload.intensity * 0.85)
+                        }}
+                        onComplete={() => {
+                          audio.triggerFrictionImpulse({
+                            intensity: 0.16,
+                            durationMs: 90,
+                            color: 0.78,
+                          })
+                          triggerResonance(0.14)
+                        }}
+                      />
                     ) : (
-                      remoteResonanceLog
-                        .slice(-5)
-                        .reverse()
-                        .map((p) => (
-                          <span key={p.at}>
-                            {p.authorName ?? 'anonymous'} ·{' '}
-                            {(p.energy * 100).toFixed(0)}%
-                            {p.city ? ` · ${p.city}` : ''}
-                          </span>
-                        ))
+                      <div className="inbox-empty">
+                        まだ筆を入れていません。
+                        <br />
+                        左で気象を選び、右で受信を待ち、ここに記す。
+                      </div>
                     )}
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
 
-            <section className="panel glass-shell">
-              <div className="panel-inner">
-                <div className="row-between">
-                  <div className="label">Compose · Your Letter</div>
-                  <div className={`row ${visibilityClass(settled, 2)}`}>
-                    <button
-                      className="btn"
-                      onClick={handleReplayLocal}
-                      disabled={!canSend && !composedText}
-                    >
-                      replay
-                    </button>
-                    <button
-                      className="btn btn-accent"
-                      onClick={() => void handleSendLetter()}
-                      disabled={!canSend || status !== 'subscribed'}
-                    >
-                      send across the deep
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 14 }}>
-                  <textarea
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    className="textarea"
-                    placeholder="Write a quiet letter to send into the Fathom..."
+              <div className={visibilityClass(settled, 6)}>
+                <div
+                  className={`with-age ${ageTierClass(activeLetter && activeLetter.source === 'archive' ? activeTier : archiveAmbientTier)}`}
+                >
+                  <LetterInbox
+                    status={status}
+                    liveLetters={liveLetters}
+                    archive={archive}
+                    archiveLoading={archiveLoading}
+                    activeLetter={activeLetter}
+                    presenceCount={presenceCount}
+                    selfId={selfId}
+                    onSelectLetter={(letter: LetterPayload) => {
+                      manualPlay(letter)
+                      triggerResonance(letter.source === 'archive' ? 0.18 : 0.24)
+                    }}
+                    onDismiss={dismissActive}
+                    onActiveStrokeImpulse={(intensity, durationMs) => {
+                      audio.triggerFrictionImpulse({
+                        intensity,
+                        durationMs,
+                        color: 0.8,
+                      })
+                      triggerResonance(Math.max(0.12, intensity * 0.9))
+                    }}
+                    onActiveComplete={() => {
+                      audio.triggerFrictionImpulse({
+                        intensity: 0.14,
+                        durationMs: 90,
+                        color: 0.74,
+                      })
+                      triggerResonance(0.16)
+                    }}
+                    onBury={(id) => void handleBury(id)}
                   />
                 </div>
-
-                <div className={`helper ${visibilityClass(settled, 3)}`}>
-                  送信した手紙は同じ Fathom
-                  に潜る他者へ届き、その後、静かに水底へ沈み、いつか誰かの潜行で再び浮かび上がります。
-                </div>
-
-                <div
-                  className={`letter-stage ${visibilityClass(settled, 4)}`}
-                  style={{ marginTop: 18 }}
-                >
-                  {composedText ? (
-                    <HandwrittenLetter
-                      animateKey={composeKey}
-                      text={composedText}
-                      fontUrl="/fonts/ZenKurenaido.ttf"
-                      fontSize={72}
-                      lineHeight={104}
-                      letterSpacing={1.2}
-                      className="handwritten-svg"
-                      strokeColor="rgba(236,246,255,0.96)"
-                      glowColor="rgba(143,216,255,0.22)"
-                      strokeWidth={2.1}
-                      onStrokeImpulse={(payload) => {
-                        audio.triggerFrictionImpulse({
-                          intensity: payload.intensity,
-                          durationMs: payload.durationMs,
-                          color: 0.84,
-                        })
-                        triggerResonance(Math.max(0.16, payload.intensity))
-                        sendResonance(payload.intensity * 0.85)
-                      }}
-                      onComplete={() => {
-                        audio.triggerFrictionImpulse({
-                          intensity: 0.16,
-                          durationMs: 90,
-                          color: 0.78,
-                        })
-                        triggerResonance(0.14)
-                      }}
-                    />
-                  ) : (
-                    <div className="inbox-empty">
-                      まだ筆を入れていません。
-                      <br />
-                      左で気象を選び、右で受信を待ち、ここに記す。
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            <div className={visibilityClass(settled, 6)}>
-              <div
-                className={`with-age ${ageTierClass(activeLetter && activeLetter.source === 'archive' ? activeTier : archiveAmbientTier)}`}
-              >
-                <LetterInbox
-                  status={status}
-                  liveLetters={liveLetters}
-                  archive={archive}
-                  archiveLoading={archiveLoading}
-                  activeLetter={activeLetter}
-                  presenceCount={presenceCount}
-                  selfId={selfId}
-                  onSelectLetter={(letter: LetterPayload) => {
-                    manualPlay(letter)
-                    triggerResonance(letter.source === 'archive' ? 0.18 : 0.24)
-                  }}
-                  onDismiss={dismissActive}
-                  onActiveStrokeImpulse={(intensity, durationMs) => {
-                    audio.triggerFrictionImpulse({
-                      intensity,
-                      durationMs,
-                      color: 0.8,
-                    })
-                    triggerResonance(Math.max(0.12, intensity * 0.9))
-                  }}
-                  onActiveComplete={() => {
-                    audio.triggerFrictionImpulse({
-                      intensity: 0.14,
-                      durationMs: 90,
-                      color: 0.74,
-                    })
-                    triggerResonance(0.16)
-                  }}
-                  onBury={(id) => void handleBury(id)}
-                />
               </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </div>
     </main>
