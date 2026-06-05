@@ -16,6 +16,9 @@ import { useFathomDescent } from '@/hooks/useFathomDescent'
 
 const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
+// 🔽 モードの型定義を追加
+export type FathomMode = 'focus' | 'meditate' | 'sleep'
+
 function safeUUID() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()
@@ -62,12 +65,50 @@ function ageTierClass(tier: ReturnType<typeof ageTier>): string {
 }
 
 /**
- * EntranceStage
- * Fathomへ入場するための新しい儀礼コンポーネント。
- * 1. 都市を入力させる
- * 2. 気象を受信する
- * 3. 準備が整ったら descend ボタンを浮かび上がらせる
+ * 目的選択用の美しいトグルボタン
  */
+function ModeSelector({ 
+  current, 
+  onSelect 
+}: { 
+  current: FathomMode
+  onSelect: (m: FathomMode) => void 
+}) {
+  const modes: { value: FathomMode; label: string }[] = [
+    { value: 'focus', label: 'Focus' },
+    { value: 'meditate', label: 'Meditate' },
+    { value: 'sleep', label: 'Sleep' },
+  ]
+
+  return (
+    <div style={{ display: 'flex', gap: 12, marginBottom: 32 }}>
+      {modes.map((m) => {
+        const isActive = current === m.value
+        return (
+          <button
+            key={m.value}
+            type="button"
+            onClick={() => onSelect(m.value)}
+            style={{
+              padding: '6px 18px',
+              borderRadius: '24px',
+              border: `1px solid ${isActive ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.15)'}`,
+              background: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
+              transition: 'all 0.3s ease',
+              letterSpacing: '0.1em',
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            {m.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function EntranceStage({
   onDescend,
   isLeaving,
@@ -76,7 +117,7 @@ function EntranceStage({
   isLoading,
   onSearch,
 }: {
-  onDescend: () => void
+  onDescend: (mode: FathomMode) => void
   isLeaving: boolean
   targetCity: string
   resolvedCity: string | null
@@ -84,12 +125,12 @@ function EntranceStage({
   onSearch: (city: string) => void
 }) {
   const [inputVal, setInputVal] = useState('')
+  const [mode, setMode] = useState<FathomMode>('meditate')
 
-  // 1. まだ都市が入力されていない状態（初期画面）
+  // 1. 初期画面
   if (!targetCity) {
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
-        {/* pointerEvents: 'auto' を追加し、重複するタイトルテキストを削除 */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
           <div style={{ position: 'relative' }}>
             <input
@@ -135,19 +176,20 @@ function EntranceStage({
     )
   }
 
-  // 3. 準備完了（descendが押せる状態）
+  // 3. 準備完了（モード選択とdescendボタン）
   return (
     <div className="descend-stage" aria-hidden={isLeaving}>
-      {/* pointerEvents: 'auto' を追加してボタンを押せるようにする */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
-        <div className="descend-caption" style={{ marginBottom: 32, opacity: 0.8, letterSpacing: '0.1em' }}>
-          {resolvedCity} の現在の気象を受信しました。
+        <div className="descend-caption" style={{ marginBottom: 24, opacity: 0.8, letterSpacing: '0.1em' }}>
+          {resolvedCity} の気象を受信しました。潜行の目的を選択してください。
         </div>
+
+        <ModeSelector current={mode} onSelect={setMode} />
 
         <button
           type="button"
           className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`}
-          onClick={onDescend}
+          onClick={() => onDescend(mode)}
           disabled={isLeaving}
         >
           <span className="descend-word">descend</span>
@@ -161,35 +203,15 @@ function EntranceStage({
   )
 }
 
-function AgedLayer({
-  createdAtMs,
-  asStage,
-  children,
-}: {
-  createdAtMs: number
-  asStage?: boolean
-  children: React.ReactNode
-}) {
-  const tier = ageTier(createdAtMs)
-  const cls = [
-    'with-age',
-    ageTierClass(tier),
-    asStage ? 'letter-stage-aged-wrap' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
-
-  return <div className={cls}>{children}</div>
-}
-
 export function FathomApp() {
-  // 初期は空文字（＝まだ都市が入力されていない状態）
   const [city, setCity] = useState('')
   const [draft, setDraft] = useState(
     'the sea keeps our names for a while.\nlisten closely, and it writes back.'
   )
-  // 初期水深は0%からスタート
   const [progress, setProgress] = useState(0)
+  // 🔽 選択されたモードを保持するステート
+  const [fathomMode, setFathomMode] = useState<FathomMode>('meditate')
+  
   const [composeKey, setComposeKey] = useState(0)
   const [resonancePulse, setResonancePulse] = useState(0)
   const [resonanceEnergy, setResonanceEnergy] = useState(0.14)
@@ -198,7 +220,6 @@ export function FathomApp() {
     ResonancePulsePayload[]
   >([])
 
-  // Beacon lifecycle
   const [hasDescended, setHasDescended] = useState(false)
   const [beaconLeaving, setBeaconLeaving] = useState(false)
   const [beaconMounted, setBeaconMounted] = useState(true)
@@ -212,7 +233,6 @@ export function FathomApp() {
   const settled = descent >= 1
   const heroPhaseClass = settled ? 'is-settled' : 'is-descending'
 
-  // 空文字の時は fetch しないか、適切にエラーハンドリングされる想定
   const { data, loading, error } = useWeather(city)
 
   const windSpeed = data?.windSpeed ?? 4.2
@@ -239,11 +259,11 @@ export function FathomApp() {
     descent,
   })
 
-  // -----------------------------------------------------------------
-  // 自動潜行（入水 ＋ 無限の漂流）ロジック
-  // -----------------------------------------------------------------
   const driftStartTimeRef = useRef<number | null>(null)
 
+  // -----------------------------------------------------------------
+  // 自動潜行（モード別の物理法則）ロジック
+  // -----------------------------------------------------------------
   useEffect(() => {
     if (!audio.running) {
       driftStartTimeRef.current = null
@@ -251,11 +271,17 @@ export function FathomApp() {
       return
     }
 
-    // 最初の8秒で「海面下」まで一気に沈み、都市の騒音を消す
-    const INITIAL_DEPTH = 0.18
+    // モードごとの初期水深（海面下の深さ）
+    const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
+    // モードごとの最終目標水深
+    const TARGET_DEPTH = fathomMode === 'focus' ? 0.55 : 1.0
+    // モードごとの沈むスピード（時定数）
+    const TIME_CONSTANT = 
+      fathomMode === 'sleep' ? 45 * 60 * 1000 :  // 睡眠: 45分で急潜航
+      fathomMode === 'focus' ? 60 * 60 * 1000 :  // 集中: 1時間で目標へ
+      2 * 60 * 60 * 1000                         // 瞑想: 2時間でゆっくり
 
     if (!settled) {
-      // descent (0..1) に連動して 0% から 18% へ
       setProgress(descent * INITIAL_DEPTH)
     } else {
       if (!driftStartTimeRef.current) {
@@ -264,17 +290,14 @@ export function FathomApp() {
 
       const timer = window.setInterval(() => {
         const elapsed = Date.now() - driftStartTimeRef.current!
-        const TIME_CONSTANT = 2 * 60 * 60 * 1000 // 時定数：2時間
-
-        // 18% から 100% に向けて、指数関数的に永遠に沈み続ける
         const currentDepth =
-          INITIAL_DEPTH + (1 - INITIAL_DEPTH) * (1 - Math.exp(-elapsed / TIME_CONSTANT))
+          INITIAL_DEPTH + (TARGET_DEPTH - INITIAL_DEPTH) * (1 - Math.exp(-elapsed / TIME_CONSTANT))
         setProgress(currentDepth)
       }, 1000)
 
       return () => window.clearInterval(timer)
     }
-  }, [audio.running, descent, settled])
+  }, [audio.running, descent, settled, fathomMode])
 
   const triggerResonance = useCallback((energy: number) => {
     setResonanceEnergy(energy)
@@ -283,16 +306,18 @@ export function FathomApp() {
 
   const handleRemoteResonance = useCallback(
     (payload: ResonancePulsePayload) => {
+      // 集中・睡眠モード時は他者の気配の音を少し控えめにする
+      const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
       const damped = Math.max(0.06, Math.min(0.22, payload.energy * 0.42))
       audio.triggerFrictionImpulse({
-        intensity: damped * 0.5,
+        intensity: damped * 0.5 * volumeDamp,
         durationMs: 80,
         color: 0.72,
       })
       triggerResonance(damped)
       setRemoteResonanceLog((prev) => [...prev, payload].slice(-12))
     },
-    [audio, triggerResonance]
+    [audio, triggerResonance, fathomMode]
   )
 
   const {
@@ -392,8 +417,9 @@ export function FathomApp() {
     [audio, buryOwnLetter, dismissActive, triggerResonance]
   )
 
-  const handleDescend = useCallback(() => {
+  const handleDescend = useCallback((selectedMode: FathomMode) => {
     if (hasDescended) return
+    setFathomMode(selectedMode)
     setHasDescended(true)
     setBeaconLeaving(true)
     beginDescent()
@@ -411,13 +437,13 @@ export function FathomApp() {
     triggerResonance(0.18)
   }, [audio, beginDescent, triggerResonance])
 
-  const archiveAmbientTier: 0 | 1 | 2 | 3 | 4 | 5 = useMemo(() => {
+  const archiveAmbientTier = useMemo(() => {
     if (archive.length === 0) return 0
     let oldest = archive[0]
     for (const l of archive) {
       if (l.createdAt < oldest.createdAt) oldest = l
     }
-    return ageTier(oldest.createdAt)
+    return ageTier(oldest.createdAt) as 0 | 1 | 2 | 3 | 4 | 5
   }, [archive])
 
   const activeTier = useMemo(() => {
@@ -425,6 +451,14 @@ export function FathomApp() {
     if (activeLetter.source === 'live') return 0
     return ageTier(activeLetter.createdAt)
   }, [activeLetter])
+
+  // 🔽 Sleepモード時のUIフェードアウト計算（水底に沈むほど画面が暗くなる）
+  const uiOpacity = useMemo(() => {
+    if (fathomMode !== 'sleep' || !settled) return 1.0
+    // progressが 0.25 から 1.0 へ向かうにつれて、Opacityを 1.0 から 0.08 まで落とす
+    const ratio = Math.max(0, (progress - 0.25) / 0.75)
+    return Math.max(0.08, 1.0 - ratio * 1.5)
+  }, [fathomMode, settled, progress])
 
   return (
     <main className="scene-root">
@@ -453,7 +487,14 @@ export function FathomApp() {
         />
       ) : null}
 
-      <div className="scene-overlay">
+      {/* 🔽 UI層に opacity を適用。Sleep時は時間経過で暗闇に沈む */}
+      <div 
+        className="scene-overlay" 
+        style={{ 
+          opacity: uiOpacity, 
+          transition: 'opacity 2s linear' 
+        }}
+      >
         <div className="container">
           <header className={`hero hero-floating ${heroPhaseClass}`}>
             <div className="hero-chip">Fathom</div>
@@ -461,7 +502,6 @@ export function FathomApp() {
             <p>
               Fathom
               は、都市の現在気象を深海音と粒子運動へ変換し、書かれた手紙を他者の水底にも筆跡として届け、過去の手紙が深さに応じて静かに浮かび上がる、共鳴のためのプロジェクトです。
-              あなたが筆を入れた瞬間、遠くの誰かの結晶もわずかに震えます。
             </p>
 
             {phase === 'descending' ? (
@@ -491,29 +531,23 @@ export function FathomApp() {
             ) : null}
           </header>
 
-          {/* 🔽 ここが重要！ 潜行を開始するまでは後ろの邪魔なパネル群を隠す */}
           {hasDescended ? (
             <div className="panel-stack three">
               <section className="panel glass-shell">
                 <div className="panel-inner">
                   <div className="label">Surface Conditions</div>
-
                   <div className={`meta-list ${visibilityClass(settled, 1)}`} style={{ marginTop: 14 }}>
                     <div className="meta-item">
                       <span>resolved city</span>
                       <span>{data?.city ?? (loading ? 'loading...' : '—')}</span>
                     </div>
                     <div className="meta-item">
+                      <span>mode</span>
+                      <span style={{ textTransform: 'capitalize', color: '#8fd8ff' }}>{fathomMode}</span>
+                    </div>
+                    <div className="meta-item">
                       <span>wind</span>
                       <span>{windSpeed.toFixed(1)} m/s</span>
-                    </div>
-                    <div className="meta-item">
-                      <span>rain</span>
-                      <span>{rainAmount.toFixed(1)} mm</span>
-                    </div>
-                    <div className="meta-item">
-                      <span>clouds</span>
-                      <span>{clouds}%</span>
                     </div>
                     <div className="meta-item">
                       <span>temperature</span>
@@ -521,21 +555,10 @@ export function FathomApp() {
                         {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}
                       </span>
                     </div>
-                    <div className="meta-item">
-                      <span>description</span>
-                      <span>{data?.description ?? '—'}</span>
-                    </div>
                   </div>
-
-                  {error ? (
-                    <div className={`helper ${visibilityClass(settled, 1)}`}>
-                      weather error: {error}
-                    </div>
-                  ) : null}
 
                   <div style={{ marginTop: 20 }}>
                     <div className="label">Fathom Depth</div>
-                    
                     <div className={`meter-panel ${visibilityClass(settled, 2)}`} style={{ pointerEvents: 'none', marginTop: 10 }}>
                       <div className="row-between">
                         <span className="small">WATER DEPTH</span>
@@ -564,10 +587,6 @@ export function FathomApp() {
                         />
                       </div>
                     </div>
-
-                    <div className={`helper ${visibilityClass(settled, 2)}`} style={{ marginTop: 12 }}>
-                      水底に留まるほど、ローパスのカットオフが指数的に下降し、音はより深く、静かになっていきます。
-                    </div>
                   </div>
 
                   <div style={{ marginTop: 20 }}>
@@ -576,91 +595,9 @@ export function FathomApp() {
                       className={`row ${visibilityClass(settled, 3)}`}
                       style={{ marginTop: 10 }}
                     >
-                      <button className="btn" onClick={handleResumeAudio}>
-                        resume
-                      </button>
-                      <button
-                        className="btn"
-                        onClick={() => void audio.suspend()}
-                      >
-                        suspend
-                      </button>
-                      <button className="btn" onClick={() => void audio.stop()}>
-                        stop
-                      </button>
-                    </div>
-
-                    <div
-                      className={`row-between ${visibilityClass(settled, 4)}`}
-                      style={{ marginTop: 14 }}
-                    >
-                      <div className="status">
-                        <span className="dot" />
-                        <span>
-                          {audio.running
-                            ? 'audio running'
-                            : audio.ready
-                            ? 'audio ready'
-                            : 'audio idle'}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                        }}
-                      >
-                        <span
-                          className="label"
-                          style={{ letterSpacing: '0.16em' }}
-                        >
-                          meter
-                        </span>
-                        <div className="meter">
-                          <div
-                            className="meter-fill"
-                            style={{
-                              width: `${Math.min(audio.meter * 620, 100)}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div
-                    className={visibilityClass(settled, 5)}
-                    style={{ marginTop: 20 }}
-                  >
-                    <div className="label">Distant Resonance</div>
-                    <div className="helper" style={{ marginTop: 6 }}>
-                      最近、遠くで誰かが筆を入れた気配:
-                    </div>
-                    <div
-                      className="inbox-meta"
-                      style={{
-                        marginTop: 6,
-                        flexDirection: 'column',
-                        alignItems: 'flex-start',
-                        gap: 4,
-                      }}
-                    >
-                      {remoteResonanceLog.length === 0 ? (
-                        <span style={{ opacity: 0.55 }}>— 静か —</span>
-                      ) : (
-                        remoteResonanceLog
-                          .slice(-5)
-                          .reverse()
-                          .map((p) => (
-                            <span key={p.at}>
-                              {p.authorName ?? 'anonymous'} ·{' '}
-                              {(p.energy * 100).toFixed(0)}%
-                              {p.city ? ` · ${p.city}` : ''}
-                            </span>
-                          ))
-                      )}
+                      <button className="btn" onClick={handleResumeAudio}>resume</button>
+                      <button className="btn" onClick={() => void audio.suspend()}>suspend</button>
+                      <button className="btn" onClick={() => void audio.stop()}>stop</button>
                     </div>
                   </div>
                 </div>
@@ -695,11 +632,6 @@ export function FathomApp() {
                       className="textarea"
                       placeholder="Write a quiet letter to send into the Fathom..."
                     />
-                  </div>
-
-                  <div className={`helper ${visibilityClass(settled, 3)}`}>
-                    送信した手紙は同じ Fathom
-                    に潜る他者へ届き、その後、静かに水底へ沈み、いつか誰かの潜行で再び浮かび上がります。
                   </div>
 
                   <div
@@ -739,8 +671,6 @@ export function FathomApp() {
                     ) : (
                       <div className="inbox-empty">
                         まだ筆を入れていません。
-                        <br />
-                        左で気象を選び、右で受信を待ち、ここに記す。
                       </div>
                     )}
                   </div>
