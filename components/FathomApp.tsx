@@ -19,20 +19,13 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
-// 🔽 修正点：古いUUIDを検知し、美しい3単語に自動アップデートするフック
 function useSelfId(): string {
   const [selfId] = useState(() => {
     if (typeof window === 'undefined') return 'server'
-    
-    // 過去の記憶を読み込む
     const stored = window.localStorage.getItem('fathom:self-id')
-    
-    // もし記憶があり、かつそれが「新しい3単語の形式」であれば、それを使う
     if (stored && isValidFathomCoordinate(stored)) {
       return stored
     }
-    
-    // 古いUUID形式だったり、まだ記憶が無い場合は、新しく美しい座標を生成して上書きする
     const nextCoordinate = generateFathomCoordinate()
     window.localStorage.setItem('fathom:self-id', nextCoordinate)
     return nextCoordinate
@@ -40,30 +33,26 @@ function useSelfId(): string {
   return selfId
 }
 
-// 深海の欠片（お守り画像）を生成してダウンロードする関数
 function downloadCrystalMemory(coordinate: string, depth: number) {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
   if (!ctx) return
 
-  // スマホの壁紙サイズ（縦長）
   const width = 1080
   const height = 1920
   canvas.width = width
   canvas.height = height
 
-  // 深度に応じた背景のグラデーション計算
   const r1 = Math.floor(10 + (25 - 10) * (1 - depth))
   const g1 = Math.floor(25 + (50 - 25) * (1 - depth))
   const b1 = Math.floor(40 + (80 - 40) * (1 - depth))
   
   const gradient = ctx.createLinearGradient(0, 0, 0, height)
   gradient.addColorStop(0, `rgb(${r1}, ${g1}, ${b1})`)
-  gradient.addColorStop(1, '#02050a') // 深海層
+  gradient.addColorStop(1, '#02050a')
   ctx.fillStyle = gradient
   ctx.fillRect(0, 0, width, height)
 
-  // 中央に光る結晶のオーラを描画
   const cx = width / 2
   const cy = height / 2 - 100
   const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 500)
@@ -72,7 +61,6 @@ function downloadCrystalMemory(coordinate: string, depth: number) {
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, width, height)
 
-  // 座標テキストの描画
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -84,12 +72,10 @@ function downloadCrystalMemory(coordinate: string, depth: number) {
     ctx.fillText(word, cx, cy - 80 + index * 120)
   })
 
-  // ヘッダー（ロゴ）
   ctx.font = '400 36px monospace'
   ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'
   ctx.fillText('F A T H O M', cx, 200)
 
-  // フッター（深度とメッセージ）
   ctx.font = '300 28px monospace'
   ctx.fillText(`Recorded at ${Math.round(depth * 100)}% depth`, cx, height - 250)
   
@@ -97,7 +83,6 @@ function downloadCrystalMemory(coordinate: string, depth: number) {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.25)'
   ctx.fillText('Keep this memory to return to your sea.', cx, height - 180)
 
-  // 画像をPNG化して自動ダウンロード
   const dataUrl = canvas.toDataURL('image/png')
   const a = document.createElement('a')
   a.href = dataUrl
@@ -343,9 +328,8 @@ function EntranceStage({
 
 export function FathomApp() {
   const [city, setCity] = useState('')
-  const [draft, setDraft] = useState(
-    'the sea keeps our names for a while.\nlisten closely, and it writes back.'
-  )
+  // 🔽 修正：初期状態を空文字にしました。これで英文は出ません。
+  const [draft, setDraft] = useState('')
   const [progress, setProgress] = useState(0)
   const [fathomMode, setFathomMode] = useState<FathomMode>('meditate')
   
@@ -797,7 +781,7 @@ export function FathomApp() {
                       <HandwrittenLetter
                         animateKey={composeKey}
                         text={composedText}
-                        fontUrl="/fonts/Zen-Kurenaido-Regular.ttf"
+                        fontUrl="/fonts/Zen_Kurenaido/ZenKurenaido-Regular.ttf"
                         fontSize={72}
                         lineHeight={104}
                         letterSpacing={1.2}

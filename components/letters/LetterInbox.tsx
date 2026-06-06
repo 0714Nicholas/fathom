@@ -99,7 +99,7 @@ export function LetterInbox({
             <HandwrittenLetter
               animateKey={activeLetter.id}
               text={activeLetter.text}
-              fontUrl="/fonts/ZenKurenaido-Regular.ttf"
+              fontUrl="/fonts/Zen_Kurenaido/ZenKurenaido-Regular.ttf"
               fontSize={70}
               lineHeight={102}
               letterSpacing={1.1}
