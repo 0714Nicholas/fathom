@@ -13,29 +13,91 @@ import {
 import { useWeather } from '@/hooks/useWeather'
 import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
 import { useFathomDescent } from '@/hooks/useFathomDescent'
+import { generateFathomCoordinate, isValidFathomCoordinate, formatCoordinateForSystem } from '@/lib/identity/coordinates'
 
 const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
-// 🔽 モードの型定義を追加
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
-
-function safeUUID() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
 
 function useSelfId(): string {
   const [selfId] = useState(() => {
     if (typeof window === 'undefined') return 'server'
     const stored = window.localStorage.getItem('fathom:self-id')
     if (stored) return stored
-    const next = safeUUID()
-    window.localStorage.setItem('fathom:self-id', next)
-    return next
+    
+    const nextCoordinate = generateFathomCoordinate()
+    window.localStorage.setItem('fathom:self-id', nextCoordinate)
+    return nextCoordinate
   })
   return selfId
+}
+
+// 🔽 新しく追加：深海の欠片（お守り画像）を生成してダウンロードする関数
+function downloadCrystalMemory(coordinate: string, depth: number) {
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  // スマホの壁紙サイズ（縦長）
+  const width = 1080
+  const height = 1920
+  canvas.width = width
+  canvas.height = height
+
+  // 深度に応じた背景のグラデーション計算
+  const r1 = Math.floor(10 + (25 - 10) * (1 - depth))
+  const g1 = Math.floor(25 + (50 - 25) * (1 - depth))
+  const b1 = Math.floor(40 + (80 - 40) * (1 - depth))
+  
+  const gradient = ctx.createLinearGradient(0, 0, 0, height)
+  gradient.addColorStop(0, `rgb(${r1}, ${g1}, ${b1})`)
+  gradient.addColorStop(1, '#02050a') // 深海層
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, width, height)
+
+  // 中央に光る結晶のオーラを描画
+  const cx = width / 2
+  const cy = height / 2 - 100
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 500)
+  glow.addColorStop(0, 'rgba(143, 216, 255, 0.15)')
+  glow.addColorStop(1, 'rgba(143, 216, 255, 0)')
+  ctx.fillStyle = glow
+  ctx.fillRect(0, 0, width, height)
+
+  // 座標テキストの描画
+  ctx.fillStyle = '#ffffff'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  
+  const words = coordinate.split('-')
+  
+  // ブラウザによってサポートが分かれるため標準的な描画
+  ctx.font = '300 72px monospace'
+  words.forEach((word, index) => {
+    ctx.fillText(word, cx, cy - 80 + index * 120)
+  })
+
+  // ヘッダー（ロゴ）
+  ctx.font = '400 36px monospace'
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'
+  ctx.fillText('F A T H O M', cx, 200)
+
+  // フッター（深度とメッセージ）
+  ctx.font = '300 28px monospace'
+  ctx.fillText(`Recorded at ${Math.round(depth * 100)}% depth`, cx, height - 250)
+  
+  ctx.font = '300 22px monospace'
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)'
+  ctx.fillText('Keep this memory to return to your sea.', cx, height - 180)
+
+  // 画像をPNG化して自動ダウンロード
+  const dataUrl = canvas.toDataURL('image/png')
+  const a = document.createElement('a')
+  a.href = dataUrl
+  a.download = `fathom-memory-${coordinate}.png`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 function visibilityClass(
@@ -64,9 +126,6 @@ function ageTierClass(tier: ReturnType<typeof ageTier>): string {
   return `age-tier-${tier}`
 }
 
-/**
- * 目的選択用の美しいトグルボタン
- */
 function ModeSelector({ 
   current, 
   onSelect 
@@ -111,6 +170,7 @@ function ModeSelector({
 
 function EntranceStage({
   onDescend,
+  onReturn,
   isLeaving,
   targetCity,
   resolvedCity,
@@ -118,6 +178,7 @@ function EntranceStage({
   onSearch,
 }: {
   onDescend: (mode: FathomMode) => void
+  onReturn: (coordinate: string) => void
   isLeaving: boolean
   targetCity: string
   resolvedCity: string | null
@@ -125,13 +186,76 @@ function EntranceStage({
   onSearch: (city: string) => void
 }) {
   const [inputVal, setInputVal] = useState('')
+  const [coordVal, setCoordVal] = useState('')
   const [mode, setMode] = useState<FathomMode>('meditate')
+  const [viewState, setViewState] = useState<'new' | 'return'>('new')
+  const [coordError, setCoordError] = useState(false)
 
-  // 1. 初期画面
+  if (viewState === 'return') {
+    return (
+      <div className="descend-stage" aria-hidden={isLeaving}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
+          <div className="descend-caption" style={{ fontSize: 16, letterSpacing: '0.1em' }}>
+            あなたの水底の座標（3つの単語）を入力してください。
+          </div>
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              value={coordVal}
+              onChange={(e) => {
+                setCoordVal(e.target.value)
+                setCoordError(false)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && coordVal.trim()) {
+                  const systemCoord = formatCoordinateForSystem(coordVal)
+                  if (isValidFathomCoordinate(systemCoord)) {
+                    onReturn(systemCoord)
+                  } else {
+                    setCoordError(true)
+                  }
+                }
+              }}
+              className="input"
+              style={{
+                textAlign: 'center',
+                width: '320px',
+                fontSize: '18px',
+                padding: '16px',
+                background: 'rgba(255,255,255,0.06)',
+                border: `1px solid ${coordError ? 'rgba(255,100,100,0.4)' : 'rgba(255,255,255,0.15)'}`,
+                borderRadius: '4px',
+                color: '#fff',
+                outline: 'none',
+                letterSpacing: '0.05em'
+              }}
+              placeholder="e.g. silent pale snow"
+            />
+          </div>
+          <div className="helper" style={{ letterSpacing: '0.1em', color: coordError ? '#ff8f8f' : 'inherit' }}>
+            {coordError ? '座標の記述が正しくありません。' : 'Enter を押して過去の記憶へ帰還します'}
+          </div>
+
+          <button 
+            type="button"
+            className="helper" 
+            onClick={() => setViewState('new')}
+            style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none', letterSpacing: '0.1em' }}
+          >
+            ← 新しい都市から潜る
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (!targetCity) {
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
+          <div className="descend-caption" style={{ fontSize: 16, letterSpacing: '0.1em' }}>
+            沿岸都市の喧騒から、深海の静寂へ。
+          </div>
           <div style={{ position: 'relative' }}>
             <input
               type="text"
@@ -160,12 +284,20 @@ function EntranceStage({
           <div className="helper" style={{ letterSpacing: '0.1em' }}>
             都市を入力し Enter で気象を受信します
           </div>
+
+          <button 
+            type="button"
+            className="helper" 
+            onClick={() => setViewState('return')}
+            style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none', letterSpacing: '0.1em' }}
+          >
+            return to your past fathom (過去の座標へ帰還)
+          </button>
         </div>
       </div>
     )
   }
 
-  // 2. 気象データを解決中
   if (isLoading || !resolvedCity) {
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
@@ -176,7 +308,6 @@ function EntranceStage({
     )
   }
 
-  // 3. 準備完了（モード選択とdescendボタン）
   return (
     <div className="descend-stage" aria-hidden={isLeaving}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
@@ -209,7 +340,6 @@ export function FathomApp() {
     'the sea keeps our names for a while.\nlisten closely, and it writes back.'
   )
   const [progress, setProgress] = useState(0)
-  // 🔽 選択されたモードを保持するステート
   const [fathomMode, setFathomMode] = useState<FathomMode>('meditate')
   
   const [composeKey, setComposeKey] = useState(0)
@@ -261,9 +391,6 @@ export function FathomApp() {
 
   const driftStartTimeRef = useRef<number | null>(null)
 
-  // -----------------------------------------------------------------
-  // 自動潜行（モード別の物理法則）ロジック
-  // -----------------------------------------------------------------
   useEffect(() => {
     if (!audio.running) {
       driftStartTimeRef.current = null
@@ -271,15 +398,12 @@ export function FathomApp() {
       return
     }
 
-    // モードごとの初期水深（海面下の深さ）
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
-    // モードごとの最終目標水深
     const TARGET_DEPTH = fathomMode === 'focus' ? 0.55 : 1.0
-    // モードごとの沈むスピード（時定数）
     const TIME_CONSTANT = 
-      fathomMode === 'sleep' ? 45 * 60 * 1000 :  // 睡眠: 45分で急潜航
-      fathomMode === 'focus' ? 60 * 60 * 1000 :  // 集中: 1時間で目標へ
-      2 * 60 * 60 * 1000                         // 瞑想: 2時間でゆっくり
+      fathomMode === 'sleep' ? 45 * 60 * 1000 :
+      fathomMode === 'focus' ? 60 * 60 * 1000 :
+      2 * 60 * 60 * 1000
 
     if (!settled) {
       setProgress(descent * INITIAL_DEPTH)
@@ -306,7 +430,6 @@ export function FathomApp() {
 
   const handleRemoteResonance = useCallback(
     (payload: ResonancePulsePayload) => {
-      // 集中・睡眠モード時は他者の気配の音を少し控えめにする
       const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
       const damped = Math.max(0.06, Math.min(0.22, payload.energy * 0.42))
       audio.triggerFrictionImpulse({
@@ -431,6 +554,11 @@ export function FathomApp() {
     }, 650)
   }, [audio, beginDescent, hasDescended, triggerResonance])
 
+  const handleReturn = useCallback((coordinate: string) => {
+    window.localStorage.setItem('fathom:self-id', coordinate)
+    window.location.reload()
+  }, [])
+
   const handleResumeAudio = useCallback(() => {
     beginDescent()
     void audio.resume()
@@ -452,10 +580,8 @@ export function FathomApp() {
     return ageTier(activeLetter.createdAt)
   }, [activeLetter])
 
-  // 🔽 Sleepモード時のUIフェードアウト計算（水底に沈むほど画面が暗くなる）
   const uiOpacity = useMemo(() => {
     if (fathomMode !== 'sleep' || !settled) return 1.0
-    // progressが 0.25 から 1.0 へ向かうにつれて、Opacityを 1.0 から 0.08 まで落とす
     const ratio = Math.max(0, (progress - 0.25) / 0.75)
     return Math.max(0.08, 1.0 - ratio * 1.5)
   }, [fathomMode, settled, progress])
@@ -479,6 +605,7 @@ export function FathomApp() {
       {beaconMounted ? (
         <EntranceStage
           onDescend={handleDescend}
+          onReturn={handleReturn}
           isLeaving={beaconLeaving}
           targetCity={city}
           resolvedCity={data?.city ?? null}
@@ -487,7 +614,6 @@ export function FathomApp() {
         />
       ) : null}
 
-      {/* 🔽 UI層に opacity を適用。Sleep時は時間経過で暗闇に沈む */}
       <div 
         className="scene-overlay" 
         style={{ 
@@ -600,6 +726,30 @@ export function FathomApp() {
                       <button className="btn" onClick={() => void audio.stop()}>stop</button>
                     </div>
                   </div>
+
+                  {/* 🔽 追加：座標とお守り保存ボタン */}
+                  <div style={{ marginTop: 28 }} className={visibilityClass(settled, 4)}>
+                    <div className="label">Your Coordinates</div>
+                    <div style={{ marginTop: 8, padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <div style={{ fontFamily: 'monospace', fontSize: '15px', letterSpacing: '0.05em', color: '#8fd8ff', textAlign: 'center' }}>
+                        {selfId.replace(/-/g, ' ')}
+                      </div>
+                      
+                      {/* お守りダウンロードボタン */}
+                      <button 
+                        className="btn btn-accent" 
+                        style={{ width: '100%', marginTop: 16, padding: '8px 0', fontSize: '12px' }}
+                        onClick={() => downloadCrystalMemory(selfId, progress)}
+                      >
+                        save as memory (画像を保存)
+                      </button>
+
+                      <div className="helper" style={{ marginTop: 12, textAlign: 'center', opacity: 0.6 }}>
+                        この座標を記録しておくことで、<br/>いつでもこの結晶と記憶に帰還できます。
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </section>
 
