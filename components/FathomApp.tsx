@@ -781,7 +781,7 @@ export function FathomApp() {
                       <HandwrittenLetter
                         animateKey={composeKey}
                         text={composedText}
-                        fontUrl="/fonts/Zen_Kurenaido/ZenKurenaido-Regular.ttf"
+                        fontUrl="/fonts/ZenKurenaido-Regular.ttf"
                         fontSize={72}
                         lineHeight={104}
                         letterSpacing={1.2}
