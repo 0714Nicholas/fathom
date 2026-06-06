@@ -19,12 +19,20 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
+// 🔽 修正点：古いUUIDを検知し、美しい3単語に自動アップデートするフック
 function useSelfId(): string {
   const [selfId] = useState(() => {
     if (typeof window === 'undefined') return 'server'
-    const stored = window.localStorage.getItem('fathom:self-id')
-    if (stored) return stored
     
+    // 過去の記憶を読み込む
+    const stored = window.localStorage.getItem('fathom:self-id')
+    
+    // もし記憶があり、かつそれが「新しい3単語の形式」であれば、それを使う
+    if (stored && isValidFathomCoordinate(stored)) {
+      return stored
+    }
+    
+    // 古いUUID形式だったり、まだ記憶が無い場合は、新しく美しい座標を生成して上書きする
     const nextCoordinate = generateFathomCoordinate()
     window.localStorage.setItem('fathom:self-id', nextCoordinate)
     return nextCoordinate
@@ -32,7 +40,7 @@ function useSelfId(): string {
   return selfId
 }
 
-// 🔽 新しく追加：深海の欠片（お守り画像）を生成してダウンロードする関数
+// 深海の欠片（お守り画像）を生成してダウンロードする関数
 function downloadCrystalMemory(coordinate: string, depth: number) {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
@@ -71,7 +79,6 @@ function downloadCrystalMemory(coordinate: string, depth: number) {
   
   const words = coordinate.split('-')
   
-  // ブラウザによってサポートが分かれるため標準的な描画
   ctx.font = '300 72px monospace'
   words.forEach((word, index) => {
     ctx.fillText(word, cx, cy - 80 + index * 120)
@@ -727,7 +734,6 @@ export function FathomApp() {
                     </div>
                   </div>
 
-                  {/* 🔽 追加：座標とお守り保存ボタン */}
                   <div style={{ marginTop: 28 }} className={visibilityClass(settled, 4)}>
                     <div className="label">Your Coordinates</div>
                     <div style={{ marginTop: 8, padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)' }}>
@@ -735,7 +741,6 @@ export function FathomApp() {
                         {selfId.replace(/-/g, ' ')}
                       </div>
                       
-                      {/* お守りダウンロードボタン */}
                       <button 
                         className="btn btn-accent" 
                         style={{ width: '100%', marginTop: 16, padding: '8px 0', fontSize: '12px' }}
