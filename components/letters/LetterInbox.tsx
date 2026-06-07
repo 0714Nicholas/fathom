@@ -40,122 +40,105 @@ export function LetterInbox({
   }, [liveLetters])
 
   return (
-    <section className="panel glass-shell inbox-panel">
-      <div className="panel-inner">
-        <div className="row-between">
-          <div className="label">Inbox · Resonance</div>
-          {activeLetter ? (
-            <button className="btn" onClick={onDismiss}>
-              dismiss
-            </button>
-          ) : (
-            <button className="btn" onClick={() => setShowArchive((s) => !s)}>
-              {showArchive ? 'close archive' : 'archive'}
-            </button>
-          )}
-        </div>
+    <div style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.6)' }}>
+      {/* HUD Header */}
+      <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 10 }}>[ RESONANCE ]</div>
+      <div style={{ marginBottom: 4 }}>Channel: {status}</div>
+      <div style={{ marginBottom: 12, color: presenceCount > 1 ? '#8fd8ff' : 'inherit' }}>
+        Echoes: {presenceCount} presence
+      </div>
 
-        <div className="row" style={{ marginTop: 8 }}>
-          <div className="small" style={{ opacity: 0.6 }}>
-            channel {status} ·
-          </div>
-          <div className="presence-chip">
-            <span className="pulse-dot" />
-            {presenceCount} fathoming
-          </div>
-        </div>
-
+      <div style={{ marginBottom: 16 }}>
         {activeLetter ? (
-          <div className="letter-stage received" style={{ marginTop: 18 }}>
-            <HandwrittenLetter
-              animateKey={activeLetter.id}
-              text={activeLetter.text}
-              fontUrl="/fonts/ZenKurenaido-Regular.ttf"
-              fontSize={36} 
-              lineHeight={64}
-              letterSpacing={1.1}
-              className="handwritten-svg"
-              strokeColor="rgba(232,246,255,0.94)"
-              glowColor="rgba(143,216,255,0.28)"
-              strokeWidth={2.0}
-              onStrokeImpulse={(payload) => {
-                onActiveStrokeImpulse(payload.intensity, payload.durationMs)
-              }}
-              onComplete={onActiveComplete}
-            />
-            <div
-              className="row-between"
-              style={{ marginTop: 24, padding: '0 8px' }}
-            >
-              <div className="small" style={{ opacity: 0.5 }}>
-                from the deep visitor • {activeLetter.city ?? 'unknown'} •{' '}
-                {new Date(activeLetter.createdAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-                {' • '}
-                {Math.round(activeLetter.depth * 100)}% depth
-              </div>
-              <button
-                className="btn"
-                style={{ fontSize: 11, padding: '4px 10px' }}
-                onClick={() => onBury(activeLetter.id)}
-              >
-                bury
-              </button>
-            </div>
-          </div>
+          <button 
+            onClick={onDismiss}
+            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', opacity: 0.7, fontSize: 11, textDecoration: 'underline', textUnderlineOffset: '4px' }}
+          >
+            dismiss signal
+          </button>
         ) : (
-          <div style={{ marginTop: 18 }}>
-            {showArchive ? (
-              <div className="archive-list">
-                {archiveLoading && (
-                  <div className="inbox-empty">fetching deep archive...</div>
-                )}
-                {!archiveLoading && archive.length === 0 && (
-                  <div className="inbox-empty">no past letters found.</div>
-                )}
-                {archive.map((l) => {
-                  const isMine = l.authorId === selfId
-                  return (
-                    <div
-                      key={l.id}
-                      className="archive-item"
-                      onClick={() => onSelectLetter(l)}
-                    >
-                      <div className="archive-text">{l.text}</div>
-                      <div className="archive-meta row-between">
-                        <span>{l.city ?? 'unknown'}</span>
-                        <span>{Math.round(l.depth * 100)}% depth</span>
-                      </div>
-                      {isMine && <div className="archive-mine-badge">your letter</div>}
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="live-list">
-                {liveLetters.length === 0 ? (
-                  <div className="inbox-empty">waiting for resonance...</div>
-                ) : (
-                  <div className="inbox-empty" style={{ opacity: 0.8 }}>
-                    {unreadCount} new letter{unreadCount > 1 ? 's' : ''} drifting
-                    near you.
-                    <br />
-                    <button
-                      className="btn btn-accent"
-                      style={{ marginTop: 12 }}
-                      onClick={() => onSelectLetter(liveLetters[0])}
-                    >
-                      read
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <button 
+            onClick={() => setShowArchive((s) => !s)}
+            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', opacity: 0.7, fontSize: 11, textDecoration: 'underline', textUnderlineOffset: '4px' }}
+          >
+            {showArchive ? 'close archive' : 'open archive'}
+          </button>
         )}
       </div>
-    </section>
+
+      {/* Content Area (Floating) */}
+      {activeLetter ? (
+        <div style={{ width: '100%', maxWidth: '300px', marginLeft: 'auto', textAlign: 'left', background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '4px', borderLeft: '1px solid rgba(143,216,255,0.3)' }}>
+          <HandwrittenLetter
+            animateKey={activeLetter.id}
+            text={activeLetter.text}
+            fontUrl="/fonts/ZenKurenaido-Regular.ttf"
+            fontSize={24} 
+            lineHeight={40}
+            letterSpacing={1.1}
+            className="handwritten-svg"
+            strokeColor="rgba(232,246,255,0.94)"
+            glowColor="rgba(143,216,255,0.28)"
+            strokeWidth={2.0}
+            onStrokeImpulse={(payload) => {
+              onActiveStrokeImpulse(payload.intensity, payload.durationMs)
+            }}
+            onComplete={onActiveComplete}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 12 }}>
+            <div style={{ opacity: 0.5, fontSize: 9 }}>
+              depth: {Math.round(activeLetter.depth * 100)}%
+            </div>
+            <button
+              style={{ background: 'none', border: 'none', color: '#ff8f8f', opacity: 0.8, cursor: 'pointer', fontSize: 10, letterSpacing: '0.1em' }}
+              onClick={() => onBury(activeLetter.id)}
+            >
+              [ bury ]
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ width: '100%', maxWidth: '240px', marginLeft: 'auto' }}>
+          {showArchive ? (
+            <div>
+              {archiveLoading && <div style={{ opacity: 0.5 }}>fetching archive...</div>}
+              {!archiveLoading && archive.length === 0 && <div style={{ opacity: 0.5 }}>no past letters found.</div>}
+              {archive.map((l) => {
+                const isMine = l.authorId === selfId
+                return (
+                  <div
+                    key={l.id}
+                    onClick={() => onSelectLetter(l)}
+                    style={{ cursor: 'pointer', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.1)', textAlign: 'left', display: 'flex', justifyContent: 'space-between', opacity: 0.8 }}
+                  >
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px', color: isMine ? '#8fd8ff' : '#fff' }}>
+                      {l.text}
+                    </div>
+                    <div style={{ opacity: 0.5 }}>{Math.round(l.depth * 100)}%</div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div>
+              {liveLetters.length === 0 ? (
+                <div style={{ opacity: 0.5 }}>waiting for resonance...</div>
+              ) : (
+                <div style={{ opacity: 0.8 }}>
+                  {unreadCount} new signal{unreadCount > 1 ? 's' : ''} detected.
+                  <br />
+                  <button
+                    onClick={() => onSelectLetter(liveLetters[0])}
+                    style={{ marginTop: 12, background: 'none', border: '1px solid rgba(143,216,255,0.4)', color: '#8fd8ff', padding: '4px 12px', fontSize: 10, cursor: 'pointer' }}
+                  >
+                    READ SIGNAL
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

@@ -348,7 +348,6 @@ export function FathomApp() {
   const { descent, phase, begin: beginDescent, skip: skipDescent } = descentCtl
 
   const settled = descent >= 1
-  const heroPhaseClass = settled ? 'is-settled' : 'is-descending'
 
   const { data, loading, error } = useWeather(city)
 
@@ -506,6 +505,7 @@ export function FathomApp() {
     if (!canSend) return
     const trimmed = draft.trim()
     setComposedText(trimmed)
+    setDraft('') // 送信後に空にする
     setComposeKey((n) => n + 1)
     triggerResonance(0.26)
     await sendLetter(trimmed)
@@ -573,8 +573,11 @@ export function FathomApp() {
     return Math.max(0.08, 1.0 - ratio * 1.5)
   }, [fathomMode, settled, progress])
 
+  // 水深に応じた水圧（1atm = 地上, 10m潜るごとに約1atm増加）のダミー演出
+  const currentPressure = (1 + progress * 10).toFixed(2)
+
   return (
-    <main className="scene-root">
+    <main className="scene-root" style={{ background: '#02050a' }}>
       <DeepSeaCanvas
         progress={progress}
         windSpeed={windSpeed}
@@ -589,6 +592,7 @@ export function FathomApp() {
 
       <div className="scene-vignette" />
 
+      {/* 🔽 完全なHUDタイポグラフィ（FATHOMロゴ） */}
       <div style={{
         position: 'fixed',
         top: 32,
@@ -602,10 +606,10 @@ export function FathomApp() {
       }}>
         <div style={{
           letterSpacing: '0.6em',
-          fontSize: '14px',
+          fontSize: '12px',
           fontWeight: 300,
           color: 'rgba(255,255,255,0.7)',
-          fontFamily: 'sans-serif'
+          fontFamily: 'monospace' // SFチックなHUDに合わせ等幅に
         }}>
           F A T H O M
         </div>
@@ -624,257 +628,188 @@ export function FathomApp() {
       ) : null}
 
       <div 
-        className="scene-overlay" 
+        className="hud-overlay" 
         style={{ 
+          position: 'absolute',
+          inset: 0,
+          zIndex: 50,
           opacity: uiOpacity, 
-          transition: 'opacity 2s linear' 
+          transition: 'opacity 2s linear',
+          pointerEvents: 'none' // クリックは下の要素に貫通させる
         }}
       >
-        <div className="container">
-          
-          {hasDescended && !settled ? (
-            <div style={{ 
-              position: 'absolute', 
-              top: '40%', 
-              left: '50%', 
-              transform: 'translate(-50%, -50%)',
-              textAlign: 'center',
-              width: '100%',
-              opacity: phase === 'descending' ? 0.8 : 0,
-              transition: 'opacity 3s ease',
-              pointerEvents: 'none'
+        {hasDescended && !settled ? (
+          <div style={{ 
+            position: 'absolute', 
+            top: '40%', 
+            left: '50%', 
+            transform: 'translate(-50%, -50%)',
+            textAlign: 'center',
+            width: '100%',
+            opacity: phase === 'descending' ? 0.8 : 0,
+            transition: 'opacity 3s ease',
+          }}>
+            <p style={{
+              fontSize: '14px',
+              letterSpacing: '0.15em',
+              lineHeight: '2.4',
+              color: 'rgba(255,255,255,0.8)',
+              fontFamily: 'sans-serif'
             }}>
-              <p style={{
-                fontSize: '16px',
-                letterSpacing: '0.15em',
-                lineHeight: '2.4',
-                color: 'rgba(255,255,255,0.9)',
-                textShadow: '0 2px 10px rgba(0,0,0,0.5)'
-              }}>
-                都市のノイズを抜け、至高の孤独へ。<br/>
-                残るのは思考のゆらぎと、遠き共鳴だけ。
-              </p>
-              <div
-                style={{
-                  marginTop: 24,
-                  opacity: 0.5,
-                  letterSpacing: '0.12em',
-                  fontSize: 12,
+              都市のノイズを抜け、至高の孤独へ。<br/>
+              残るのは思考のゆらぎと、遠き共鳴だけ。
+            </p>
+            <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>
+              descending — {Math.round(descent * 100)}%
+            </div>
+          </div>
+        ) : null}
+
+        {/* 🔽 ここから HUD 2.0 (枠のない情報空間) 🔽 */}
+        {hasDescended && settled ? (
+          <>
+            {/* 左上 [SURFACE] */}
+            <div className={visibilityClass(settled, 1)} style={{
+              position: 'absolute', top: 40, left: 32, textAlign: 'left',
+              fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.6)',
+              pointerEvents: 'auto'
+            }}>
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 10 }}>[ SURFACE ]</div>
+              <div style={{ marginBottom: 4 }}>Origin: {data?.city ?? 'Unknown'}</div>
+              <div style={{ marginBottom: 4 }}>Surface Noise: {windSpeed.toFixed(1)} m/s</div>
+              <div>Surface Temp: {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}</div>
+            </div>
+
+            {/* 左下 [ABYSS] */}
+            <div className={visibilityClass(settled, 2)} style={{
+              position: 'absolute', bottom: 40, left: 32, textAlign: 'left',
+              fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.6)',
+              pointerEvents: 'auto'
+            }}>
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 10 }}>[ ABYSS ]</div>
+              <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
+              <div style={{ marginBottom: 12 }}>Pressure: {currentPressure} atm</div>
+              
+              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: 10 }}>[ COORDINATE ]</div>
+              <div style={{ marginBottom: 12 }}>{selfId.replace(/-/g, ' ')}</div>
+              
+              <button 
+                onClick={() => downloadCrystalMemory(selfId, progress)}
+                style={{ 
+                  background: 'none', border: 'none', color: '#8fd8ff', opacity: 0.7, 
+                  cursor: 'pointer', padding: 0, fontSize: 10, letterSpacing: '0.1em',
+                  textDecoration: 'underline', textUnderlineOffset: '4px'
                 }}
               >
-                descending — {Math.round(descent * 100)}%
-              </div>
+                save as memory
+              </button>
             </div>
-          ) : null}
 
-          {hasDescended && settled ? (
-            <div className="panel-stack three">
-              <section className="panel glass-shell">
-                <div className="panel-inner">
-                  <div className="label">Surface Conditions</div>
-                  <div className={`meta-list ${visibilityClass(settled, 1)}`} style={{ marginTop: 14 }}>
-                    <div className="meta-item">
-                      <span>resolved city</span>
-                      <span>{data?.city ?? (loading ? 'loading...' : '—')}</span>
-                    </div>
-                    <div className="meta-item">
-                      <span>mode</span>
-                      <span style={{ textTransform: 'capitalize', color: '#8fd8ff' }}>{fathomMode}</span>
-                    </div>
-                    <div className="meta-item">
-                      <span>wind</span>
-                      <span>{windSpeed.toFixed(1)} m/s</span>
-                    </div>
-                    <div className="meta-item">
-                      <span>temperature</span>
-                      <span>
-                        {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}
-                      </span>
-                    </div>
-                  </div>
+            {/* 右上 [RESONANCE] */}
+            <div className={visibilityClass(settled, 3)} style={{
+              position: 'absolute', top: 40, right: 32, pointerEvents: 'auto'
+            }}>
+              <LetterInbox
+                status={status}
+                liveLetters={liveLetters}
+                archive={archive}
+                archiveLoading={archiveLoading}
+                activeLetter={activeLetter}
+                presenceCount={presenceCount}
+                selfId={selfId}
+                onSelectLetter={(letter: LetterPayload) => {
+                  manualPlay(letter)
+                  triggerResonance(letter.source === 'archive' ? 0.18 : 0.24)
+                }}
+                onDismiss={dismissActive}
+                onActiveStrokeImpulse={(intensity, durationMs) => {
+                  audio.triggerFrictionImpulse({ intensity, durationMs, color: 0.8 })
+                  triggerResonance(Math.max(0.12, intensity * 0.9))
+                }}
+                onActiveComplete={() => {
+                  audio.triggerFrictionImpulse({ intensity: 0.14, durationMs: 90, color: 0.74 })
+                  triggerResonance(0.16)
+                }}
+                onBury={(id) => void handleBury(id)}
+              />
+            </div>
 
-                  <div style={{ marginTop: 20 }}>
-                    <div className="label">Fathom Depth</div>
-                    <div className={`meter-panel ${visibilityClass(settled, 2)}`} style={{ pointerEvents: 'none', marginTop: 10 }}>
-                      <div className="row-between">
-                        <span className="small">WATER DEPTH</span>
-                        <span className="small">{Math.round(progress * 100)}%</span>
-                      </div>
-                      
-                      <div 
-                        className="depth-gauge-bg" 
-                        style={{
-                          width: '100%',
-                          height: '4px',
-                          backgroundColor: 'rgba(255,255,255,0.1)',
-                          borderRadius: '2px',
-                          marginTop: '8px',
-                          overflow: 'hidden'
-                        }}
-                      >
-                        <div 
-                          className="depth-gauge-fill"
-                          style={{
-                            width: `${progress * 100}%`,
-                            height: '100%',
-                            backgroundColor: 'rgba(143, 216, 255, 0.8)',
-                            transition: 'width 1s linear'
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 20 }}>
-                    <div className="label">Audio Control</div>
-                    <div
-                      className={`row ${visibilityClass(settled, 3)}`}
-                      style={{ marginTop: 10 }}
-                    >
-                      <button className="btn" onClick={handleResumeAudio}>resume</button>
-                      <button className="btn" onClick={() => void audio.suspend()}>suspend</button>
-                      <button className="btn" onClick={() => void audio.stop()}>stop</button>
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 28 }} className={visibilityClass(settled, 4)}>
-                    <div className="label">Your Coordinates</div>
-                    <div style={{ marginTop: 8, padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                      <div style={{ fontFamily: 'monospace', fontSize: '15px', letterSpacing: '0.05em', color: '#8fd8ff', textAlign: 'center' }}>
-                        {selfId.replace(/-/g, ' ')}
-                      </div>
-                      
-                      <button 
-                        className="btn btn-accent" 
-                        style={{ width: '100%', marginTop: 16, padding: '8px 0', fontSize: '12px' }}
-                        onClick={() => downloadCrystalMemory(selfId, progress)}
-                      >
-                        save as memory (画像を保存)
-                      </button>
-
-                      <div className="helper" style={{ marginTop: 12, textAlign: 'center', opacity: 0.6 }}>
-                        この座標を記録しておくことで、<br/>いつでもこの結晶と記憶に帰還できます。
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </section>
-
-              <section className="panel glass-shell">
-                <div className="panel-inner">
-                  <div className="row-between">
-                    <div className="label">Compose · Your Letter</div>
-                    <div className={`row ${visibilityClass(settled, 2)}`}>
-                      <button
-                        className="btn"
-                        onClick={handleReplayLocal}
-                        disabled={!canSend && !composedText}
-                      >
-                        replay
-                      </button>
-                      <button
-                        className="btn btn-accent"
-                        onClick={() => void handleSendLetter()}
-                        disabled={!canSend || status !== 'subscribed'}
-                      >
-                        send across the deep
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 14 }}>
-                    <textarea
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      className="textarea"
-                      placeholder="Write a quiet letter to send into the Fathom..."
-                    />
-                  </div>
-
-                  <div
-                    className={`letter-stage ${visibilityClass(settled, 4)}`}
-                    style={{ marginTop: 18 }}
-                  >
-                    {composedText ? (
-                      <HandwrittenLetter
-                        animateKey={composeKey}
-                        text={composedText}
-                        fontUrl="/fonts/ZenKurenaido-Regular.ttf"
-                        fontSize={36} 
-                        lineHeight={64}
-                        letterSpacing={1.2}
-                        className="handwritten-svg"
-                        strokeColor="rgba(236,246,255,0.96)"
-                        glowColor="rgba(143,216,255,0.22)"
-                        strokeWidth={2.1}
-                        onStrokeImpulse={(payload) => {
-                          audio.triggerFrictionImpulse({
-                            intensity: payload.intensity,
-                            durationMs: payload.durationMs,
-                            color: 0.84,
-                          })
-                          triggerResonance(Math.max(0.16, payload.intensity))
-                          sendResonance(payload.intensity * 0.85)
-                        }}
-                        onComplete={() => {
-                          audio.triggerFrictionImpulse({
-                            intensity: 0.16,
-                            durationMs: 90,
-                            color: 0.78,
-                          })
-                          triggerResonance(0.14)
-                        }}
-                      />
-                    ) : (
-                      <div className="inbox-empty">
-                        まだ筆を入れていません。
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              <div className={visibilityClass(settled, 6)}>
-                <div
-                  className={`with-age ${ageTierClass(activeLetter && activeLetter.source === 'archive' ? activeTier : archiveAmbientTier)}`}
-                >
-                  <LetterInbox
-                    status={status}
-                    liveLetters={liveLetters}
-                    archive={archive}
-                    archiveLoading={archiveLoading}
-                    activeLetter={activeLetter}
-                    presenceCount={presenceCount}
-                    selfId={selfId}
-                    onSelectLetter={(letter: LetterPayload) => {
-                      manualPlay(letter)
-                      triggerResonance(letter.source === 'archive' ? 0.18 : 0.24)
+            {/* 下辺中央 [ACTION] & [COMPOSE] */}
+            <div className={visibilityClass(settled, 4)} style={{
+              position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)',
+              width: '100%', maxWidth: '600px', display: 'flex', flexDirection: 'column', alignItems: 'center',
+              pointerEvents: 'auto'
+            }}>
+              {/* Handwritten output area */}
+              <div style={{ width: '100%', height: 120, position: 'relative', marginBottom: 16 }}>
+                {composedText ? (
+                  <HandwrittenLetter
+                    animateKey={composeKey}
+                    text={composedText}
+                    fontUrl="/fonts/ZenKurenaido-Regular.ttf"
+                    fontSize={32} 
+                    lineHeight={48}
+                    letterSpacing={1.2}
+                    className="handwritten-svg"
+                    strokeColor="rgba(236,246,255,0.96)"
+                    glowColor="rgba(143,216,255,0.22)"
+                    strokeWidth={2.1}
+                    onStrokeImpulse={(payload) => {
+                      audio.triggerFrictionImpulse({ intensity: payload.intensity, durationMs: payload.durationMs, color: 0.84 })
+                      triggerResonance(Math.max(0.16, payload.intensity))
+                      sendResonance(payload.intensity * 0.85)
                     }}
-                    onDismiss={dismissActive}
-                    onActiveStrokeImpulse={(intensity, durationMs) => {
-                      audio.triggerFrictionImpulse({
-                        intensity,
-                        durationMs,
-                        color: 0.8,
-                      })
-                      triggerResonance(Math.max(0.12, intensity * 0.9))
+                    onComplete={() => {
+                      audio.triggerFrictionImpulse({ intensity: 0.16, durationMs: 90, color: 0.78 })
+                      triggerResonance(0.14)
                     }}
-                    onActiveComplete={() => {
-                      audio.triggerFrictionImpulse({
-                        intensity: 0.14,
-                        durationMs: 90,
-                        color: 0.74,
-                      })
-                      triggerResonance(0.16)
-                    }}
-                    onBury={(id) => void handleBury(id)}
                   />
-                </div>
+                ) : null}
+              </div>
+
+              {/* Minimal Compose Input */}
+              <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'flex-end', padding: '0 24px' }}>
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder="write a quiet letter..."
+                  style={{
+                    flex: 1,
+                    background: 'transparent',
+                    border: 'none',
+                    borderBottom: '1px solid rgba(255,255,255,0.2)',
+                    color: 'rgba(255,255,255,0.8)',
+                    fontFamily: 'sans-serif',
+                    fontSize: '14px',
+                    padding: '8px 0',
+                    outline: 'none',
+                    resize: 'none',
+                    height: '40px',
+                    lineHeight: '24px'
+                  }}
+                />
+                <button
+                  onClick={() => void handleSendLetter()}
+                  disabled={!canSend || status !== 'subscribed'}
+                  style={{
+                    background: 'none', border: 'none', color: canSend ? '#8fd8ff' : 'rgba(255,255,255,0.3)',
+                    cursor: canSend ? 'pointer' : 'default', padding: '8px 0', fontSize: 12, letterSpacing: '0.1em',
+                    fontFamily: 'monospace'
+                  }}
+                >
+                  [ send ]
+                </button>
+              </div>
+
+              {/* Audio Controls */}
+              <div style={{ display: 'flex', gap: 16, marginTop: 24, opacity: 0.4 }}>
+                <button className="hud-btn" onClick={handleResumeAudio}>resume</button>
+                <button className="hud-btn" onClick={() => void audio.suspend()}>suspend</button>
+                <button className="hud-btn" onClick={() => void audio.stop()}>stop</button>
               </div>
             </div>
-          ) : null}
-        </div>
+          </>
+        ) : null}
       </div>
     </main>
   )
