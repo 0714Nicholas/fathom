@@ -74,8 +74,8 @@ export function LetterInbox({
             text={activeLetter.text}
             // 🚨 美しい明朝体と縮小されたフォントサイズ
             fontUrl="/fonts/ShipporiMincho-Regular.ttf"
-            fontSize={20} 
-            lineHeight={32}
+            fontSize={15} 
+            lineHeight={28}
             letterSpacing={1.2}
             className="handwritten-svg"
             strokeColor="rgba(232,246,255,0.9)"

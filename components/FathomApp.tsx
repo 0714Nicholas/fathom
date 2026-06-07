@@ -19,20 +19,51 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
-// 🔽 HUD用の統一されたボタンスタイル（計器風）
-const hudBtnStyle = {
-  background: 'rgba(255, 255, 255, 0.03)',
-  border: '1px solid rgba(255, 255, 255, 0.15)',
-  color: 'rgba(255, 255, 255, 0.5)',
-  padding: '6px 16px',
-  fontSize: '10px',
-  letterSpacing: '0.15em',
-  fontFamily: 'monospace',
-  cursor: 'pointer',
-  textTransform: 'uppercase' as const,
-  borderRadius: '2px',
-  transition: 'all 0.3s ease'
-}
+// 🚨 修正：安っぽいボタンを極限まで削ぎ落としたCSS
+const hudStyles = `
+  .hud-btn {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.3);
+    font-family: monospace;
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 6px 12px;
+    position: relative;
+    transition: color 0.4s ease;
+  }
+  .hud-btn::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 1px;
+    background-color: rgba(143, 216, 255, 0.8);
+    transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .hud-btn:hover {
+    color: rgba(143, 216, 255, 0.9);
+  }
+  .hud-btn:hover::after {
+    width: 60%;
+  }
+  .hud-btn:disabled {
+    color: rgba(255, 255, 255, 0.1);
+    cursor: default;
+  }
+  .hud-btn:disabled:hover::after {
+    width: 0;
+  }
+  .hud-input::placeholder {
+    color: rgba(255, 255, 255, 0.2);
+    font-family: monospace;
+    letter-spacing: 0.1em;
+  }
+`
 
 function useSelfId(): string {
   const [selfId] = useState(() => {
@@ -129,19 +160,12 @@ function ageTier(createdAtMs: number, now: number = Date.now()): 0 | 1 | 2 | 3 |
   return 5
 }
 
-function ModeSelector({ 
-  current, 
-  onSelect 
-}: { 
-  current: FathomMode
-  onSelect: (m: FathomMode) => void 
-}) {
+function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m: FathomMode) => void }) {
   const modes: { value: FathomMode; label: string }[] = [
     { value: 'focus', label: 'Focus' },
     { value: 'meditate', label: 'Meditate' },
     { value: 'sleep', label: 'Sleep' },
   ]
-
   return (
     <div style={{ display: 'flex', gap: 12, marginBottom: 32 }}>
       {modes.map((m) => {
@@ -171,23 +195,7 @@ function ModeSelector({
   )
 }
 
-function EntranceStage({
-  onDescend,
-  onReturn,
-  isLeaving,
-  targetCity,
-  resolvedCity,
-  isLoading,
-  onSearch,
-}: {
-  onDescend: (mode: FathomMode) => void
-  onReturn: (coordinate: string) => void
-  isLeaving: boolean
-  targetCity: string
-  resolvedCity: string | null
-  isLoading: boolean
-  onSearch: (city: string) => void
-}) {
+function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCity, isLoading, onSearch }: any) {
   const [inputVal, setInputVal] = useState('')
   const [coordVal, setCoordVal] = useState('')
   const [mode, setMode] = useState<FathomMode>('meditate')
@@ -201,50 +209,29 @@ function EntranceStage({
           <div className="descend-caption" style={{ fontSize: 14, letterSpacing: '0.1em' }}>
             あなたの水底の座標（3つの単語）を入力してください。
           </div>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="text"
-              value={coordVal}
-              onChange={(e) => {
-                setCoordVal(e.target.value)
-                setCoordError(false)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && coordVal.trim()) {
-                  const systemCoord = formatCoordinateForSystem(coordVal)
-                  if (isValidFathomCoordinate(systemCoord)) {
-                    onReturn(systemCoord)
-                  } else {
-                    setCoordError(true)
-                  }
-                }
-              }}
-              className="input"
-              style={{
-                textAlign: 'center',
-                width: '320px',
-                fontSize: '16px',
-                padding: '16px',
-                background: 'rgba(255,255,255,0.06)',
-                border: `1px solid ${coordError ? 'rgba(255,100,100,0.4)' : 'rgba(255,255,255,0.15)'}`,
-                borderRadius: '4px',
-                color: '#fff',
-                outline: 'none',
-                letterSpacing: '0.05em'
-              }}
-              placeholder="e.g. silent pale snow"
-            />
-          </div>
+          <input
+            type="text"
+            value={coordVal}
+            onChange={(e) => { setCoordVal(e.target.value); setCoordError(false) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && coordVal.trim()) {
+                const systemCoord = formatCoordinateForSystem(coordVal)
+                if (isValidFathomCoordinate(systemCoord)) onReturn(systemCoord)
+                else setCoordError(true)
+              }
+            }}
+            className="input"
+            style={{
+              textAlign: 'center', width: '320px', fontSize: '16px', padding: '16px',
+              background: 'rgba(255,255,255,0.06)', border: `1px solid ${coordError ? 'rgba(255,100,100,0.4)' : 'rgba(255,255,255,0.15)'}`,
+              borderRadius: '4px', color: '#fff', outline: 'none', letterSpacing: '0.05em'
+            }}
+            placeholder="e.g. silent pale snow"
+          />
           <div className="helper" style={{ letterSpacing: '0.1em', color: coordError ? '#ff8f8f' : 'inherit' }}>
             {coordError ? '座標の記述が正しくありません。' : 'Enter を押して過去の記憶へ帰還します'}
           </div>
-
-          <button 
-            type="button"
-            className="helper" 
-            onClick={() => setViewState('new')}
-            style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none', letterSpacing: '0.1em' }}
-          >
+          <button type="button" className="helper" onClick={() => setViewState('new')} style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none', letterSpacing: '0.1em' }}>
             ← 新しい都市から潜る
           </button>
         </div>
@@ -256,41 +243,23 @@ function EntranceStage({
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
-          <div style={{ position: 'relative' }}>
-            <input
-              type="text"
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && inputVal.trim()) {
-                  onSearch(inputVal.trim())
-                }
-              }}
-              className="input"
-              style={{
-                textAlign: 'center',
-                width: '300px',
-                fontSize: '16px',
-                padding: '16px',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: '4px',
-                color: '#fff',
-                outline: 'none',
-              }}
-              placeholder="e.g. Tokyo, London, New York"
-            />
-          </div>
+          <input
+            type="text"
+            value={inputVal}
+            onChange={(e) => setInputVal(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && inputVal.trim()) onSearch(inputVal.trim()) }}
+            className="input"
+            style={{
+              textAlign: 'center', width: '300px', fontSize: '16px', padding: '16px',
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: '4px', color: '#fff', outline: 'none',
+            }}
+            placeholder="e.g. Tokyo, London, New York"
+          />
           <div className="helper" style={{ letterSpacing: '0.1em' }}>
             都市を入力し Enter で気象を受信します
           </div>
-
-          <button 
-            type="button"
-            className="helper" 
-            onClick={() => setViewState('return')}
-            style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none', letterSpacing: '0.1em' }}
-          >
+          <button type="button" className="helper" onClick={() => setViewState('return')} style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none', letterSpacing: '0.1em' }}>
             return to your past fathom (過去の座標へ帰還)
           </button>
         </div>
@@ -301,9 +270,7 @@ function EntranceStage({
   if (isLoading || !resolvedCity) {
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
-        <div className="descend-caption" style={{ letterSpacing: '0.15em', pointerEvents: 'auto' }}>
-          resolving atmospheric data for {targetCity}...
-        </div>
+        <div className="descend-caption" style={{ letterSpacing: '0.15em', pointerEvents: 'auto' }}>resolving atmospheric data for {targetCity}...</div>
       </div>
     )
   }
@@ -314,21 +281,11 @@ function EntranceStage({
         <div className="descend-caption" style={{ marginBottom: 24, opacity: 0.8, letterSpacing: '0.1em', fontSize: 14 }}>
           {resolvedCity} の気象を受信しました。潜行の目的を選択してください。
         </div>
-
         <ModeSelector current={mode} onSelect={setMode} />
-
-        <button
-          type="button"
-          className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`}
-          onClick={() => onDescend(mode)}
-          disabled={isLeaving}
-        >
+        <button type="button" className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} onClick={() => onDescend(mode)} disabled={isLeaving}>
           <span className="descend-word">descend</span>
         </button>
-
-        <div className="descend-caption" style={{ marginTop: 24, letterSpacing: '0.15em' }}>
-          press to enter the deep
-        </div>
+        <div className="descend-caption" style={{ marginTop: 24, letterSpacing: '0.15em' }}>press to enter the deep</div>
       </div>
     </div>
   )
@@ -344,9 +301,6 @@ export function FathomApp() {
   const [resonancePulse, setResonancePulse] = useState(0)
   const [resonanceEnergy, setResonanceEnergy] = useState(0.14)
   const [composedText, setComposedText] = useState<string | null>(null)
-  const [remoteResonanceLog, setRemoteResonanceLog] = useState<
-    ResonancePulsePayload[]
-  >([])
 
   const [hasDescended, setHasDescended] = useState(false)
   const [beaconLeaving, setBeaconLeaving] = useState(false)
@@ -356,66 +310,35 @@ export function FathomApp() {
   const identity = useMemo(() => makeCrystalIdentity(selfId), [selfId])
 
   const descentCtl = useFathomDescent({ durationMs: 8000 })
-  const { descent, phase, begin: beginDescent, skip: skipDescent } = descentCtl
-
+  const { descent, phase, begin: beginDescent } = descentCtl
   const settled = descent >= 1
 
-  const { data, loading, error } = useWeather(city)
+  const { data, loading } = useWeather(city)
 
   const windSpeed = data?.windSpeed ?? 4.2
   const rainAmount = (data?.rain1h ?? 0) + (data?.rain3h ?? 0)
   const clouds = data?.clouds ?? 42
-
   const weatherSnapshot = useMemo(() => {
     if (!data) return null
-    return {
-      city: data.city,
-      windSpeed,
-      rainAmount,
-      clouds,
-      temp: data.temp,
-      description: data.description,
-    } as Record<string, unknown>
+    return { city: data.city, windSpeed, rainAmount, clouds, temp: data.temp, description: data.description } as Record<string, unknown>
   }, [clouds, data, rainAmount, windSpeed])
 
-  const audio = useDeepSeaAudio({
-    enabled: true,
-    progress,
-    windSpeed,
-    rainAmount,
-    descent,
-  })
-
+  const audio = useDeepSeaAudio({ enabled: true, progress, windSpeed, rainAmount, descent })
   const driftStartTimeRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!audio.running) {
-      driftStartTimeRef.current = null
-      setProgress(0)
-      return
-    }
-
+    if (!audio.running) { driftStartTimeRef.current = null; setProgress(0); return }
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
     const TARGET_DEPTH = fathomMode === 'focus' ? 0.55 : 1.0
-    const TIME_CONSTANT = 
-      fathomMode === 'sleep' ? 45 * 60 * 1000 :
-      fathomMode === 'focus' ? 60 * 60 * 1000 :
-      2 * 60 * 60 * 1000
+    const TIME_CONSTANT = fathomMode === 'sleep' ? 45 * 60 * 1000 : fathomMode === 'focus' ? 60 * 60 * 1000 : 2 * 60 * 60 * 1000
 
-    if (!settled) {
-      setProgress(descent * INITIAL_DEPTH)
-    } else {
-      if (!driftStartTimeRef.current) {
-        driftStartTimeRef.current = Date.now()
-      }
-
+    if (!settled) setProgress(descent * INITIAL_DEPTH)
+    else {
+      if (!driftStartTimeRef.current) driftStartTimeRef.current = Date.now()
       const timer = window.setInterval(() => {
         const elapsed = Date.now() - driftStartTimeRef.current!
-        const currentDepth =
-          INITIAL_DEPTH + (TARGET_DEPTH - INITIAL_DEPTH) * (1 - Math.exp(-elapsed / TIME_CONSTANT))
-        setProgress(currentDepth)
+        setProgress(INITIAL_DEPTH + (TARGET_DEPTH - INITIAL_DEPTH) * (1 - Math.exp(-elapsed / TIME_CONSTANT)))
       }, 1000)
-
       return () => window.clearInterval(timer)
     }
   }, [audio.running, descent, settled, fathomMode])
@@ -425,118 +348,50 @@ export function FathomApp() {
     setResonancePulse((p) => p + 1)
   }, [])
 
-  const handleRemoteResonance = useCallback(
-    (payload: ResonancePulsePayload) => {
-      const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
-      const damped = Math.max(0.06, Math.min(0.22, payload.energy * 0.42))
-      audio.triggerFrictionImpulse({
-        intensity: damped * 0.5 * volumeDamp,
-        durationMs: 80,
-        color: 0.72,
-      })
-      triggerResonance(damped)
-      setRemoteResonanceLog((prev) => [...prev, payload].slice(-12))
-    },
-    [audio, triggerResonance, fathomMode]
-  )
+  const handleRemoteResonance = useCallback((payload: ResonancePulsePayload) => {
+    const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
+    const damped = Math.max(0.06, Math.min(0.22, payload.energy * 0.42))
+    audio.triggerFrictionImpulse({ intensity: damped * 0.5 * volumeDamp, durationMs: 80, color: 0.72 })
+    triggerResonance(damped)
+  }, [audio, triggerResonance, fathomMode])
 
   const {
-    status,
-    liveLetters,
-    archive,
-    activeLetter,
-    presenceCount,
-    archiveLoading,
-    latestHeatmapPulse,
-    sendLetter,
-    sendResonance,
-    dismissActive,
-    manualPlay,
-    buryOwnLetter,
+    status, liveLetters, archive, activeLetter, presenceCount, archiveLoading, latestHeatmapPulse,
+    sendLetter, sendResonance, dismissActive, manualPlay, buryOwnLetter,
   } = useRealtimeLetters({
-    roomId: ROOM_ID,
-    selfId,
-    selfName: 'visitor',
-    city: data?.city,
-    depth: progress,
-    descent,
-    currentWeatherSnapshot: weatherSnapshot,
-    preferredLang: null,
-    onRemoteResonance: handleRemoteResonance,
-    enableFirstSurfacing: true,
-    firstSurfacingGraceMs: 1600,
+    roomId: ROOM_ID, selfId, selfName: 'visitor', city: data?.city, depth: progress, descent,
+    currentWeatherSnapshot: weatherSnapshot, preferredLang: null, onRemoteResonance: handleRemoteResonance,
+    enableFirstSurfacing: true, firstSurfacingGraceMs: 1600,
   })
 
-  const [, setNowTick] = useState(0)
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setNowTick((n) => (n + 1) % 1_000_000)
-    }, 60_000)
-    return () => window.clearInterval(id)
-  }, [])
-
   const lastActiveLetterRef = useRef<string | null>(null)
-
   useEffect(() => {
     if (!activeLetter) return
     if (lastActiveLetterRef.current === activeLetter.id) return
     lastActiveLetterRef.current = activeLetter.id
-
-    if (activeLetter.source === 'archive') {
-      audio.triggerFrictionImpulse({
-        intensity: 0.26,
-        durationMs: 240,
-        color: 0.7,
-      })
-      triggerResonance(0.22)
-    } else {
-      audio.triggerFrictionImpulse({
-        intensity: 0.4,
-        durationMs: 180,
-        color: 0.78,
-      })
-      triggerResonance(0.32)
-    }
+    audio.triggerFrictionImpulse({ intensity: activeLetter.source === 'archive' ? 0.26 : 0.4, durationMs: activeLetter.source === 'archive' ? 240 : 180, color: 0.7 })
+    triggerResonance(activeLetter.source === 'archive' ? 0.22 : 0.32)
   }, [activeLetter, audio, triggerResonance])
 
   const canSend = useMemo(() => draft.trim().length > 0, [draft])
-
-  const handleReplayLocal = useCallback(() => {
-    if (!composedText && !canSend) return
-    if (composedText) {
-      setComposeKey((n) => n + 1)
-    } else {
-      setComposedText(draft.trim())
-      setComposeKey((n) => n + 1)
-    }
-    triggerResonance(0.2)
-  }, [canSend, composedText, draft, triggerResonance])
 
   const handleSendLetter = useCallback(async () => {
     if (!canSend) return
     const trimmed = draft.trim()
     setComposedText(trimmed)
-    setDraft('') // 送信後に空にする
+    setDraft('')
     setComposeKey((n) => n + 1)
     triggerResonance(0.26)
     await sendLetter(trimmed)
   }, [canSend, draft, sendLetter, triggerResonance])
 
-  const handleBury = useCallback(
-    async (letterId: string) => {
-      const ok = await buryOwnLetter(letterId)
-      if (ok) {
-        dismissActive()
-        audio.triggerFrictionImpulse({
-          intensity: 0.18,
-          durationMs: 220,
-          color: 0.66,
-        })
-        triggerResonance(0.12)
-      }
-    },
-    [audio, buryOwnLetter, dismissActive, triggerResonance]
-  )
+  const handleBury = useCallback(async (letterId: string) => {
+    if (await buryOwnLetter(letterId)) {
+      dismissActive()
+      audio.triggerFrictionImpulse({ intensity: 0.18, durationMs: 220, color: 0.66 })
+      triggerResonance(0.12)
+    }
+  }, [audio, buryOwnLetter, dismissActive, triggerResonance])
 
   const handleDescend = useCallback((selectedMode: FathomMode) => {
     if (hasDescended) return
@@ -546,10 +401,7 @@ export function FathomApp() {
     beginDescent()
     void audio.start()
     triggerResonance(0.22)
-
-    window.setTimeout(() => {
-      setBeaconMounted(false)
-    }, 650)
+    window.setTimeout(() => setBeaconMounted(false), 650)
   }, [audio, beginDescent, hasDescended, triggerResonance])
 
   const handleReturn = useCallback((coordinate: string) => {
@@ -557,22 +409,17 @@ export function FathomApp() {
     window.location.reload()
   }, [])
 
-  const handleResumeAudio = useCallback(() => {
-    beginDescent()
-    void audio.resume()
-    triggerResonance(0.18)
-  }, [audio, beginDescent, triggerResonance])
-
   const uiOpacity = useMemo(() => {
     if (fathomMode !== 'sleep' || !settled) return 1.0
-    const ratio = Math.max(0, (progress - 0.25) / 0.75)
-    return Math.max(0.08, 1.0 - ratio * 1.5)
+    return Math.max(0.08, 1.0 - (Math.max(0, (progress - 0.25) / 0.75)) * 1.5)
   }, [fathomMode, settled, progress])
 
   const currentPressure = (1 + progress * 10).toFixed(2)
 
   return (
     <main className="scene-root" style={{ background: '#02050a' }}>
+      <style>{hudStyles}</style>
+
       <DeepSeaCanvas
         progress={progress}
         windSpeed={windSpeed}
@@ -587,222 +434,94 @@ export function FathomApp() {
 
       <div className="scene-vignette" />
 
-      {/* 🔽 HUDタイポグラフィ（FATHOMロゴ） */}
-      <div style={{
-        position: 'fixed',
-        top: 32,
-        left: 0,
-        width: '100%',
-        textAlign: 'center',
-        pointerEvents: 'none',
-        zIndex: 100,
-        opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity),
-        transition: 'opacity 2s linear'
-      }}>
-        <div style={{
-          letterSpacing: '0.6em',
-          fontSize: '12px',
-          fontWeight: 300,
-          color: 'rgba(255,255,255,0.7)',
-          fontFamily: 'monospace'
-        }}>
-          F A T H O M
-        </div>
+      {/* トップロゴ */}
+      <div style={{ position: 'fixed', top: 32, left: 0, width: '100%', textAlign: 'center', pointerEvents: 'none', zIndex: 100, opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity), transition: 'opacity 2s linear' }}>
+        <div style={{ letterSpacing: '0.6em', fontSize: '12px', fontWeight: 300, color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}>F A T H O M</div>
       </div>
 
       {beaconMounted ? (
-        <EntranceStage
-          onDescend={handleDescend}
-          onReturn={handleReturn}
-          isLeaving={beaconLeaving}
-          targetCity={city}
-          resolvedCity={data?.city ?? null}
-          isLoading={loading}
-          onSearch={(c) => setCity(c)}
-        />
+        <EntranceStage onDescend={handleDescend} onReturn={handleReturn} isLeaving={beaconLeaving} targetCity={city} resolvedCity={data?.city ?? null} isLoading={loading} onSearch={(c: string) => setCity(c)} />
       ) : null}
 
-      <div 
-        className="hud-overlay" 
-        style={{ 
-          position: 'absolute',
-          inset: 0,
-          zIndex: 50,
-          opacity: uiOpacity, 
-          transition: 'opacity 2s linear',
-          pointerEvents: 'none'
-        }}
-      >
+      <div className="hud-overlay" style={{ position: 'absolute', inset: 0, zIndex: 50, opacity: uiOpacity, transition: 'opacity 2s linear', pointerEvents: 'none' }}>
+        
         {hasDescended && !settled ? (
-          <div style={{ 
-            position: 'absolute', 
-            top: '40%', 
-            left: '50%', 
-            transform: 'translate(-50%, -50%)',
-            textAlign: 'center',
-            width: '100%',
-            opacity: phase === 'descending' ? 0.8 : 0,
-            transition: 'opacity 3s ease',
-          }}>
-            <p style={{
-              fontSize: '14px',
-              letterSpacing: '0.15em',
-              lineHeight: '2.4',
-              color: 'rgba(255,255,255,0.8)',
-              fontFamily: 'sans-serif'
-            }}>
-              都市のノイズを抜け、至高の孤独へ。<br/>
-              残るのは思考のゆらぎと、遠き共鳴だけ。
+          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: phase === 'descending' ? 0.8 : 0, transition: 'opacity 3s ease' }}>
+            <p style={{ fontSize: '14px', letterSpacing: '0.15em', lineHeight: '2.4', color: 'rgba(255,255,255,0.8)', fontFamily: 'sans-serif' }}>
+              都市のノイズを抜け、至高の孤独へ。<br/>残るのは思考のゆらぎと、遠き共鳴だけ。
             </p>
-            <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>
-              descending — {Math.round(descent * 100)}%
-            </div>
+            <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>descending — {Math.round(descent * 100)}%</div>
           </div>
         ) : null}
 
-        {/* 🔽 HUD 2.0 (計器化) 🔽 */}
+        {/* HUD UI */}
         {hasDescended && settled ? (
           <>
             {/* 左上 [SURFACE] */}
-            <div className={visibilityClass(settled, 1)} style={{
-              position: 'absolute', top: 40, left: 32, textAlign: 'left',
-              fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.6)',
-              pointerEvents: 'auto'
-            }}>
-              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 10 }}>[ SURFACE ]</div>
+            <div className={visibilityClass(settled, 1)} style={{ position: 'absolute', top: 40, left: 32, textAlign: 'left', fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.5)', pointerEvents: 'auto' }}>
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 9 }}>[ SURFACE ]</div>
               <div style={{ marginBottom: 4 }}>Origin: {data?.city ?? 'Unknown'}</div>
               <div style={{ marginBottom: 4 }}>Surface Noise: {windSpeed.toFixed(1)} m/s</div>
               <div>Surface Temp: {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}</div>
             </div>
 
             {/* 左下 [ABYSS] */}
-            <div className={visibilityClass(settled, 2)} style={{
-              position: 'absolute', bottom: 40, left: 32, textAlign: 'left',
-              fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.6)',
-              pointerEvents: 'auto'
-            }}>
-              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 10 }}>[ ABYSS ]</div>
+            <div className={visibilityClass(settled, 2)} style={{ position: 'absolute', bottom: 40, left: 32, textAlign: 'left', fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.5)', pointerEvents: 'auto' }}>
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 9 }}>[ ABYSS ]</div>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
               <div style={{ marginBottom: 12 }}>Pressure: {currentPressure} atm</div>
-              
-              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: 10 }}>[ COORDINATE ]</div>
+              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: 9 }}>[ COORDINATE ]</div>
               <div style={{ marginBottom: 12 }}>{selfId.replace(/-/g, ' ')}</div>
-              
-              <button 
-                onClick={() => downloadCrystalMemory(selfId, progress)}
-                style={{ 
-                  background: 'none', border: 'none', color: '#8fd8ff', opacity: 0.7, 
-                  cursor: 'pointer', padding: 0, fontSize: 10, letterSpacing: '0.1em',
-                  textDecoration: 'underline', textUnderlineOffset: '4px'
-                }}
-              >
-                save as memory
-              </button>
+              <button onClick={() => downloadCrystalMemory(selfId, progress)} style={{ background: 'none', border: 'none', color: '#8fd8ff', opacity: 0.7, cursor: 'pointer', padding: 0, fontSize: 9, letterSpacing: '0.1em', textDecoration: 'underline', textUnderlineOffset: '4px' }}>save as memory</button>
             </div>
 
             {/* 右上 [RESONANCE] */}
-            <div className={visibilityClass(settled, 3)} style={{
-              position: 'absolute', top: 40, right: 32, pointerEvents: 'auto'
-            }}>
+            <div className={visibilityClass(settled, 3)} style={{ position: 'absolute', top: 40, right: 32, pointerEvents: 'auto' }}>
               <LetterInbox
-                status={status}
-                liveLetters={liveLetters}
-                archive={archive}
-                archiveLoading={archiveLoading}
-                activeLetter={activeLetter}
-                presenceCount={presenceCount}
-                selfId={selfId}
-                onSelectLetter={(letter: LetterPayload) => {
-                  manualPlay(letter)
-                  triggerResonance(letter.source === 'archive' ? 0.18 : 0.24)
-                }}
+                status={status} liveLetters={liveLetters} archive={archive} archiveLoading={archiveLoading} activeLetter={activeLetter} presenceCount={presenceCount} selfId={selfId}
+                onSelectLetter={(letter: LetterPayload) => { manualPlay(letter); triggerResonance(letter.source === 'archive' ? 0.18 : 0.24) }}
                 onDismiss={dismissActive}
-                onActiveStrokeImpulse={(intensity, durationMs) => {
-                  audio.triggerFrictionImpulse({ intensity, durationMs, color: 0.8 })
-                  triggerResonance(Math.max(0.12, intensity * 0.9))
-                }}
-                onActiveComplete={() => {
-                  audio.triggerFrictionImpulse({ intensity: 0.14, durationMs: 90, color: 0.74 })
-                  triggerResonance(0.16)
-                }}
+                onActiveStrokeImpulse={(intensity, durationMs) => { audio.triggerFrictionImpulse({ intensity, durationMs, color: 0.8 }); triggerResonance(Math.max(0.12, intensity * 0.9)) }}
+                onActiveComplete={() => { audio.triggerFrictionImpulse({ intensity: 0.14, durationMs: 90, color: 0.74 }); triggerResonance(0.16) }}
                 onBury={(id) => void handleBury(id)}
               />
             </div>
 
             {/* 下辺中央 [ACTION] & [COMPOSE] */}
-            <div className={visibilityClass(settled, 4)} style={{
-              position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)',
-              width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', alignItems: 'center',
-              pointerEvents: 'auto'
-            }}>
-              {/* Handwritten output area */}
-              <div style={{ width: '100%', height: 80, position: 'relative', marginBottom: 24 }}>
+            <div className={visibilityClass(settled, 4)} style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '460px', display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
+              
+              {/* 🚨 修正：手紙の表示サイズを極小化 (fontSize: 15) */}
+              <div style={{ width: '100%', height: 60, position: 'relative', marginBottom: 24 }}>
                 {composedText ? (
                   <HandwrittenLetter
-                    animateKey={composeKey}
-                    text={composedText}
-                    // 🚨 美しい明朝体と縮小されたフォントサイズ
-                    fontUrl="/fonts/ShipporiMincho-Regular.ttf"
-                    fontSize={20} 
-                    lineHeight={32}
-                    letterSpacing={1.2}
-                    className="handwritten-svg"
-                    strokeColor="rgba(236,246,255,0.8)"
-                    glowColor="rgba(143,216,255,0.15)"
-                    strokeWidth={1.5}
-                    onStrokeImpulse={(payload) => {
-                      audio.triggerFrictionImpulse({ intensity: payload.intensity, durationMs: payload.durationMs, color: 0.84 })
-                      triggerResonance(Math.max(0.16, payload.intensity))
-                      sendResonance(payload.intensity * 0.85)
-                    }}
-                    onComplete={() => {
-                      audio.triggerFrictionImpulse({ intensity: 0.16, durationMs: 90, color: 0.78 })
-                      triggerResonance(0.14)
-                    }}
+                    animateKey={composeKey} text={composedText} fontUrl="/fonts/ShipporiMincho-Regular.ttf"
+                    fontSize={15} lineHeight={28} letterSpacing={1.2} className="handwritten-svg"
+                    strokeColor="rgba(236,246,255,0.7)" glowColor="rgba(143,216,255,0.1)" strokeWidth={1.2}
+                    onStrokeImpulse={(payload) => { audio.triggerFrictionImpulse({ intensity: payload.intensity, durationMs: payload.durationMs, color: 0.84 }); triggerResonance(Math.max(0.16, payload.intensity)); sendResonance(payload.intensity * 0.85) }}
+                    onComplete={() => { audio.triggerFrictionImpulse({ intensity: 0.16, durationMs: 90, color: 0.78 }); triggerResonance(0.14) }}
                   />
                 ) : null}
               </div>
 
-              {/* Minimal Compose Input */}
-              <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'flex-end', padding: '0 24px' }}>
+              {/* Input Area */}
+              <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0 24px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder="write a quiet letter..."
-                  style={{
-                    flex: 1,
-                    background: 'transparent',
-                    border: 'none',
-                    borderBottom: '1px solid rgba(255,255,255,0.15)',
-                    color: 'rgba(255,255,255,0.8)',
-                    fontFamily: 'sans-serif',
-                    fontSize: '13px',
-                    padding: '8px 0',
-                    outline: 'none',
-                    resize: 'none',
-                    height: '36px',
-                    lineHeight: '24px',
-                    letterSpacing: '0.05em'
-                  }}
+                  className="hud-input"
+                  style={{ flex: 1, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'sans-serif', fontSize: '12px', padding: '8px 0', outline: 'none', resize: 'none', height: '32px', lineHeight: '16px', letterSpacing: '0.05em' }}
                 />
-                <button
-                  onClick={() => void handleSendLetter()}
-                  disabled={!canSend || status !== 'subscribed'}
-                  style={{
-                    ...hudBtnStyle,
-                    color: canSend ? '#8fd8ff' : 'rgba(255,255,255,0.3)',
-                    borderColor: canSend ? 'rgba(143,216,255,0.4)' : 'rgba(255,255,255,0.15)',
-                  }}
-                >
-                  [ send ]
+                <button className="hud-btn" onClick={() => void handleSendLetter()} disabled={!canSend || status !== 'subscribed'} style={{ color: canSend ? '#8fd8ff' : 'rgba(255,255,255,0.2)' }}>
+                  send
                 </button>
               </div>
 
-              {/* Audio Controls */}
-              <div style={{ display: 'flex', gap: 16, marginTop: 32 }}>
-                <button style={hudBtnStyle} onClick={handleResumeAudio}>resume</button>
-                <button style={hudBtnStyle} onClick={() => void audio.suspend()}>suspend</button>
-                <button style={hudBtnStyle} onClick={() => void audio.stop()}>stop</button>
+              {/* 🚨 修正：洗練されたオーディオコントロールボタン */}
+              <div style={{ display: 'flex', gap: 24, marginTop: 24 }}>
+                <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>resume</button>
+                <button className="hud-btn" onClick={() => void audio.suspend()}>suspend</button>
+                <button className="hud-btn" onClick={() => void audio.stop()}>stop</button>
               </div>
             </div>
           </>
