@@ -1,3 +1,5 @@
+// hooks/useRealtimeLetters.ts
+
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -34,6 +36,7 @@ export type LetterPayload = {
   createdAt: number
   source: LetterSource
   fathomDepth?: number | null
+  depth: number // 🔽 追加：UI側で表示するためのプロパティ
   weatherSnapshot?: Record<string, unknown> | null
   lang?: string | null
 }
@@ -128,6 +131,7 @@ function archivedToLetterPayload(a: ArchivedLetter): LetterPayload {
     createdAt: new Date(a.created_at).getTime(),
     source: 'archive',
     fathomDepth: a.fathom_depth,
+    depth: a.fathom_depth ?? 0, // 🔽 DBの値をセット
     weatherSnapshot: a.weather_snapshot,
     lang: a.lang,
   }
@@ -147,15 +151,6 @@ function identityOrFallback(
   )
 }
 
-/**
- * For the ceremonial "first letter from the deep", we don't want a random
- * candidate; we want something that *feels* old and intentional.
- *
- * Strategy:
- *   - If any archive letter is older than 24h, pick the oldest one.
- *   - Otherwise, pick the oldest of whatever we have.
- *   - Skip letters authored by self (the deep should not speak in your voice).
- */
 function pickFirstSurfacingCandidate(
   archive: LetterPayload[],
   selfId: string,
@@ -170,8 +165,6 @@ function pickFirstSurfacingCandidate(
   const old = eligible.filter((l) => now - l.createdAt > 24 * 60 * 60 * 1000)
   const pool = old.length > 0 ? old : eligible
 
-  // archive list is already sorted ascending by created_at,
-  // but be defensive in case the source order ever changes.
   let oldest = pool[0]
   for (const candidate of pool) {
     if (candidate.createdAt < oldest.createdAt) oldest = candidate
@@ -222,7 +215,6 @@ export function useRealtimeLetters({
   const cityRef = useRef(city)
   const langRef = useRef(preferredLang ?? null)
 
-  // First-surfacing ceremony bookkeeping
   const firstSurfacingPlannedRef = useRef(false)
   const firstSurfacingFiredRef = useRef(false)
   const settledAtRef = useRef<number | null>(null)
@@ -250,7 +242,6 @@ export function useRealtimeLetters({
     langRef.current = preferredLang ?? null
   }, [preferredLang])
 
-  // Record the moment descent first reaches 1.
   useEffect(() => {
     if (descent >= 1 && settledAtRef.current == null) {
       settledAtRef.current = Date.now()
@@ -380,7 +371,12 @@ export function useRealtimeLetters({
         if (seenLetterIdsRef.current.has(data.id)) return
         seenLetterIdsRef.current.add(data.id)
 
-        const live: LetterPayload = { ...data, source: 'live' }
+        // 🔽 深さのフォールバックを安全に処理
+        const live: LetterPayload = { 
+          ...data, 
+          depth: data.depth ?? data.fathomDepth ?? 0, 
+          source: 'live' 
+        }
 
         setLiveLetters((prev) => {
           if (prev.some((l) => l.id === live.id)) return prev
@@ -463,24 +459,16 @@ export function useRealtimeLetters({
   }, [roomId])
 
   // ---------- "First letter from the deep" ceremony -------------------------
-  //
-  // Runs at most once per session.
-  // Fires shortly after descent has fully settled, regardless of depth,
-  // as long as we haven't already played a live letter in the meantime.
-  // --------------------------------------------------------------------------
   useEffect(() => {
     if (!enableFirstSurfacing) return
     if (firstSurfacingFiredRef.current) return
     if (firstSurfacingPlannedRef.current) return
 
-    // Need archive to actually have something to surface.
     if (archive.length === 0) return
 
-    // Wait until descent has fully settled.
     if (descent < 1) return
     if (settledAtRef.current == null) return
 
-    // Make sure we have an eligible candidate (not self, not already surfaced).
     const candidate = pickFirstSurfacingCandidate(
       archive,
       selfId,
@@ -494,17 +482,12 @@ export function useRealtimeLetters({
     const wait = Math.max(0, firstSurfacingGraceMs - elapsedSinceSettled)
 
     const timer = window.setTimeout(() => {
-      // Final guards before actually firing:
-      //   - never override a live letter the user is already reading
-      //   - never repeat
       if (firstSurfacingFiredRef.current) return
       if (everPlayedLiveLetterRef.current) {
-        // The present already spoke; the deep stays silent this once.
         firstSurfacingFiredRef.current = true
         return
       }
 
-      // Re-pick in case archive changed during the wait
       const finalCandidate = pickFirstSurfacingCandidate(
         archive,
         selfId,
@@ -524,14 +507,11 @@ export function useRealtimeLetters({
       emitHeatmapPulse({
         authorId: finalCandidate.authorId || finalCandidate.id,
         azimuthSource: finalCandidate.id,
-        // Slightly stronger than a regular surfacing — this one is intentional.
         energy: 0.7,
       })
     }, wait)
 
     return () => {
-      // If the effect re-runs (e.g. archive updates) before firing,
-      // cancel the planned timer and allow re-planning.
       window.clearTimeout(timer)
       if (!firstSurfacingFiredRef.current) {
         firstSurfacingPlannedRef.current = false
@@ -553,11 +533,8 @@ export function useRealtimeLetters({
       const now = Date.now()
       if (playingRef.current) return
 
-      // Wait for descent.
       if (descentRef.current < 1) return
 
-      // Defer the regular cadence until the first ceremony has completed
-      // (or has been explicitly skipped because a live letter beat it).
       if (enableFirstSurfacing && !firstSurfacingFiredRef.current) return
 
       if (depthRef.current < archiveSurfacingThreshold) return
@@ -605,6 +582,8 @@ export function useRealtimeLetters({
       const id = safeUUID()
       const now = Date.now()
 
+      const currentDepth = Math.max(0, Math.min(1, depthRef.current))
+
       const letter: LetterPayload = {
         id,
         text: trimmed,
@@ -613,7 +592,8 @@ export function useRealtimeLetters({
         city: cityRef.current,
         createdAt: now,
         source: 'live',
-        fathomDepth: Math.max(0, Math.min(1, depthRef.current)),
+        fathomDepth: currentDepth,
+        depth: currentDepth, // 🔽 現在の深度をセット
         weatherSnapshot: weatherRef.current,
         lang: langRef.current,
       }
