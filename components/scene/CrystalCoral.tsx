@@ -28,33 +28,31 @@ export function CrystalCoral({
   const flashEnergy = useRef(0)
 
   useFrame((state, delta) => {
-    // 共鳴の検知
     if (resonancePulse > prevPulse.current) {
       flashEnergy.current = 1.0
       prevPulse.current = resonancePulse
     }
-    
-    // 共鳴の余韻はゆっくりと（ロングディレイ）
     flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.4)
 
     const time = state.clock.elapsedTime
 
-    // 1. 内なるコア：常に限界突破した蒼炎のプラズマ
+    // 1. 内なるコア：常に激しく燃えるプラズマ
     if (innerMatRef.current) {
-      // 🚨 修正：平時でも、かつての共鳴時レベルの圧倒的な発光を維持する
-      const baseGlow = 8.0 + Math.sin(time * 3.0) * 2.0 
-      const flashGlow = flashEnergy.current * 6.0 // 打つと限界を超えて眩く
+      // 🚨 平時から圧倒的な発光（6.0）を維持。共鳴時はさらに白飛びするほど（+8.0）光る。
+      const baseGlow = 6.0 + Math.sin(time * 3.0) * 1.5 
+      const flashGlow = flashEnergy.current * 8.0 
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
-      // 🚨 修正：常に激しく脈動し、グツグツとうねり続ける
-      innerMatRef.current.distort = 0.8 + flashEnergy.current * 0.4
-      innerMatRef.current.speed = 10.0 + flashEnergy.current * 5.0
+      // 常に激しく脈動
+      innerMatRef.current.distort = 0.6 + flashEnergy.current * 0.4
+      innerMatRef.current.speed = 8.0 + flashEnergy.current * 6.0
     }
 
-    // 2. 外殻：黒曜の液体レンズ
+    // 2. 外殻：完全にクリアな液体レンズ
     if (outerMatRef.current) {
-      const baseAtten = new THREE.Color('#030b1c') 
-      const flashAtten = new THREE.Color('#ffffff') // 共鳴時は完全なクリア
+      // 🚨 変更：平時から「かすかに青みを帯びた透明（クリア）」にする
+      const baseAtten = new THREE.Color('#b3dbff') 
+      const flashAtten = new THREE.Color('#ffffff') // 共鳴時は完全な無色透明
       outerMatRef.current.attenuationColor.lerpColors(baseAtten, flashAtten, flashEnergy.current)
 
       const baseDistortion = 0.5 + (windSpeed * 0.04)
@@ -77,9 +75,9 @@ export function CrystalCoral({
 
       const baseScale = 0.85
       
-      const flashExpand = flashEnergy.current * 0.12
-      const flashVibrateX = Math.sin(time * 20) * flashEnergy.current * 0.02
-      const flashVibrateY = Math.cos(time * 23) * flashEnergy.current * 0.02
+      const flashExpand = flashEnergy.current * 0.15
+      const flashVibrateX = Math.sin(time * 20) * flashEnergy.current * 0.03
+      const flashVibrateY = Math.cos(time * 23) * flashEnergy.current * 0.03
 
       const targetX = baseScale * wobbleX + flashExpand + flashVibrateX
       const targetY = baseScale * wobbleY + flashExpand + flashVibrateY
@@ -95,35 +93,35 @@ export function CrystalCoral({
       <directionalLight position={[5, 5, 2]} intensity={1.5} color="#8fd8ff" />
       <Environment preset="night" />
 
-      {/* 内なるコア：常に激しく燃えるプラズマ */}
+      {/* 内なるコア：剥き出しの蒼炎 */}
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
         <Sphere args={[0.4, 64, 64]}> 
           <MeshDistortMaterial
             ref={innerMatRef}
             color="#ffffff"
-            emissive="#0055ff"
-            emissiveIntensity={8.0} // 🚨 初期値から圧倒的な光量
+            emissive="#0055ff" // 鮮烈なプラズマブルー
+            emissiveIntensity={6.0}
             toneMapped={false}
-            distort={0.8} // 🚨 初期値から激しくうねる
-            speed={10}    // 🚨 初期値から速く動く
+            distort={0.6} 
+            speed={8}     
           />
         </Sphere>
       </Float>
 
-      {/* 外殻：黒曜の液体レンズ */}
+      {/* 外殻：クリアな水滴レンズ */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
           thickness={1.5}             
-          roughness={0.05}            
+          roughness={0.02}            // 🚨 曇りを極限まで無くし、ツルツルでクリアに
           transmission={1}            
           ior={1.33}                  
-          chromaticAberration={0.08}  
+          chromaticAberration={0.06}  
           distortion={0.5}            
           temporalDistortion={0.3}    
           color="#ffffff"             
-          attenuationColor="#030b1c"  
-          attenuationDistance={1.8}   
+          attenuationColor="#b3dbff"  // 🚨 ベースをクリアな水色に
+          attenuationDistance={3.0}   // 🚨 光の吸収距離を大幅に伸ばし、中身を完全透過させる
           envMapIntensity={2.0}
         />
       </Sphere>
