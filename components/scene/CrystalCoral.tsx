@@ -2,7 +2,7 @@
 
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Sphere, MeshTransmissionMaterial, Float } from '@react-three/drei'
+import { Sphere, MeshDistortMaterial, Float } from '@react-three/drei'
 import * as THREE from 'three'
 
 interface CrystalCoralProps {
@@ -24,81 +24,87 @@ export function CrystalCoral({
 }: CrystalCoralProps) {
   const outerMatRef = useRef<any>(null)
   const innerMatRef = useRef<THREE.MeshStandardMaterial>(null)
+  const groupRef = useRef<THREE.Group>(null)
   
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
 
   useFrame((state, delta) => {
-    // 1. パルス（共鳴）の検知
+    // 1. 共鳴の検知
     if (resonancePulse > prevPulse.current) {
-      flashEnergy.current = 1.0 // 閃光のエネルギーをMAXに
+      flashEnergy.current = 1.0
       prevPulse.current = resonancePulse
     }
 
-    // エネルギーをゆっくり減衰させる
-    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 2.5)
+    // 閃光のエネルギーを減衰
+    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 3.0)
 
     const time = state.clock.elapsedTime
 
-    // 2. 内なる蒼炎（コア）の呼吸と脈動
+    // 2. 内なる蒼炎（コア）
     if (innerMatRef.current) {
-      // 普段から蒼いオーラを少し強めに明滅させる
-      const baseGlow = 0.8 + Math.sin(time * 0.8) * 0.3 + Math.sin(time * 0.3) * 0.2
-      // 共鳴時は圧倒的な閃光を放つ
-      const flashGlow = flashEnergy.current * 6.0
-      innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
+      const baseGlow = 0.5 + Math.sin(time * 1.2) * 0.2
+      // 共鳴時は圧倒的な発光
+      innerMatRef.current.emissiveIntensity = baseGlow + flashEnergy.current * 5.0
     }
 
-    // 3. 黒曜の液体レンズ（外殻）の透過と屈折
+    // 3. 黒曜の液体（外殻）
     if (outerMatRef.current) {
-      // 共鳴時は表面の曇り（roughness）が完全に消え、純度の高いクリスタルになる
-      outerMatRef.current.roughness = 0.15 - flashEnergy.current * 0.15
+      // 普段は深い黒曜石の色、共鳴時は蒼白く光る
+      const baseColor = new THREE.Color('#050a15')
+      const flashColor = new THREE.Color('#8fd8ff')
+      outerMatRef.current.color.lerpColors(baseColor, flashColor, flashEnergy.current * 0.8)
 
-      // 風速と共鳴エネルギーによる表面のうねり（1/fゆらぎ）
-      const baseDistortion = 0.3
-      const windEffect = Math.min(windSpeed * 0.05, 0.4)
-      const flashDistortion = flashEnergy.current * 0.6 // 共鳴時は大きく波打つ
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(
-        outerMatRef.current.distortion, 
-        baseDistortion + windEffect + flashDistortion, 
+      // 🚨ここがポイント：常に半透明（0.5）を保ち、UIを隠さない。共鳴時のみ少し不透明度を上げる
+      outerMatRef.current.opacity = 0.5 + flashEnergy.current * 0.3
+
+      // 風と共鳴による波打ち（1/fゆらぎ）
+      const baseDistort = 0.3 + (windSpeed * 0.02)
+      outerMatRef.current.distort = THREE.MathUtils.lerp(
+        outerMatRef.current.distort,
+        baseDistort + flashEnergy.current * 0.5, // 共鳴時に大きく歪む
         delta * 2
       )
+    }
+
+    // 4. 共鳴時に全体が少し膨張するギミック
+    if (groupRef.current) {
+      const targetScale = 0.75 + flashEnergy.current * 0.15
+      groupRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), delta * 5)
     }
   })
 
   return (
-    // 🔽 サイズを 1.2 -> 0.85 に縮小し、UIの邪魔にならない「高密度のコア」にする
-    <group scale={0.85}>
+    // 🔽 UIの邪魔にならないよう少し下（y: -0.5）に配置し、サイズを最適化
+    <group ref={groupRef} scale={0.75} position={[0, -0.5, 0]}>
+      
       {/* [ 内なるコア：蒼い静炎 ] */}
-      <Float speed={2.5} rotationIntensity={1.5} floatIntensity={0.8}>
+      <Float speed={3} rotationIntensity={2} floatIntensity={1}>
         <Sphere args={[0.35, 32, 32]}>
           <meshStandardMaterial
             ref={innerMatRef}
             color="#ffffff"
-            emissive="#8fd8ff" // 蒼白い炎
+            emissive="#4ab9ff" // 深く美しい蒼
             emissiveIntensity={1.0}
             toneMapped={false}
           />
         </Sphere>
       </Float>
 
-      {/* [ 外殻：黒曜の液体レンズ ] */}
+      {/* [ 外殻：黒曜の液体 ] */}
       <Sphere args={[1.2, 64, 64]}>
-        <MeshTransmissionMaterial
+        <MeshDistortMaterial
           ref={outerMatRef}
-          thickness={2.0}            // 水の厚み
-          roughness={0.15}           // わずかな曇り
-          transmission={1}           // 🚨光を完全に通す（これが1じゃないと黒い穴になる）
-          ior={1.4}                  // 水(1.33)とガラス(1.5)の中間の屈折率。重みのある液体
-          chromaticAberration={0.15} // 光の虹色の分散を少し強めて神秘的に
-          distortion={0.3}           // 基本のゆらぎ
-          temporalDistortion={0.2}   // ゆらぎのスピード
-          color="#ffffff"            // 🚨ベースは「白（透明）」にする
-          attenuationColor="#0a192f" // 🚨ここで「黒曜石の暗い青黒さ」を着色する
-          attenuationDistance={1.2}  // 光が減衰して暗くなる距離
-          backside                   
+          color="#050a15"
+          transparent={true} // 🚨CSS背景と馴染ませるための必須設定
+          opacity={0.5}      // 背景のテキストが透けて見える
+          roughness={0.1}    // 艶やかな表面
+          metalness={0.9}    // 金属のような重厚な反射
+          distort={0.3}      // 波打ち具合
+          speed={2}          // 波打ちの速度
         />
       </Sphere>
+
     </group>
   )
 }
