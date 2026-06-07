@@ -1,10 +1,11 @@
 'use client'
 
+import { useMemo, useState } from 'react'
 import { HandwrittenLetter } from '@/components/letters/HandwrittenLetter'
 import type { LetterPayload } from '@/hooks/useRealtimeLetters'
 
-type LetterInboxProps = {
-  status: 'idle' | 'connecting' | 'subscribed' | 'error' | 'disabled'
+export interface LetterInboxProps {
+  status: string
   liveLetters: LetterPayload[]
   archive: LetterPayload[]
   archiveLoading: boolean
@@ -15,31 +16,7 @@ type LetterInboxProps = {
   onDismiss: () => void
   onActiveStrokeImpulse: (intensity: number, durationMs: number) => void
   onActiveComplete: () => void
-  onBury: (letterId: string) => void
-}
-
-function formatTime(ts: number) {
-  try {
-    const d = new Date(ts)
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return ''
-  }
-}
-
-function statusLabel(status: LetterInboxProps['status']) {
-  switch (status) {
-    case 'subscribed':
-      return 'channel subscribed'
-    case 'connecting':
-      return 'connecting...'
-    case 'error':
-      return 'connection error'
-    case 'disabled':
-      return 'realtime disabled'
-    default:
-      return 'idle'
-  }
+  onBury: (id: string) => void
 }
 
 export function LetterInbox({
@@ -56,41 +33,35 @@ export function LetterInbox({
   onActiveComplete,
   onBury,
 }: LetterInboxProps) {
-  const canBuryActive =
-    activeLetter?.source === 'live' && activeLetter.authorId === selfId
+  const [showArchive, setShowArchive] = useState(false)
+
+  const unreadCount = useMemo(() => {
+    return liveLetters.length
+  }, [liveLetters])
 
   return (
-    <section className="panel glass-shell">
+    <section className="panel glass-shell inbox-panel">
       <div className="panel-inner">
         <div className="row-between">
-          <div>
-            <div className="label">Inbox · Resonance</div>
-            <div className="inbox-meta">
-              <span>{statusLabel(status)}</span>
-              <span className="divider" />
-              <span className="presence-pill">
-                <span className="presence-dot" />
-                {presenceCount} fathoming
-              </span>
-            </div>
+          <div className="label">Inbox · Resonance</div>
+          {activeLetter ? (
+            <button className="btn" onClick={onDismiss}>
+              dismiss
+            </button>
+          ) : (
+            <button className="btn" onClick={() => setShowArchive((s) => !s)}>
+              {showArchive ? 'close archive' : 'archive'}
+            </button>
+          )}
+        </div>
+
+        <div className="row" style={{ marginTop: 8 }}>
+          <div className="small" style={{ opacity: 0.6 }}>
+            channel {status} ·
           </div>
-
-          <div className="row">
-            {canBuryActive && activeLetter ? (
-              <button
-                className="btn"
-                onClick={() => onBury(activeLetter.id)}
-                title="Sink this letter deeper. It will no longer surface."
-              >
-                sink deeper
-              </button>
-            ) : null}
-
-            {activeLetter ? (
-              <button className="btn" onClick={onDismiss}>
-                dismiss
-              </button>
-            ) : null}
+          <div className="presence-chip">
+            <span className="pulse-dot" />
+            {presenceCount} fathoming
           </div>
         </div>
 
@@ -100,8 +71,8 @@ export function LetterInbox({
               animateKey={activeLetter.id}
               text={activeLetter.text}
               fontUrl="/fonts/ZenKurenaido-Regular.ttf"
-              fontSize={70}
-              lineHeight={102}
+              fontSize={36} 
+              lineHeight={64}
               letterSpacing={1.1}
               className="handwritten-svg"
               strokeColor="rgba(232,246,255,0.94)"
@@ -112,100 +83,78 @@ export function LetterInbox({
               }}
               onComplete={onActiveComplete}
             />
-            <div className="inbox-meta" style={{ marginTop: 12 }}>
-              <span>
-                {activeLetter.source === 'archive' ? 'from the deep' : 'from'}{' '}
-                {activeLetter.authorName ?? 'anonymous'}
-              </span>
-              {activeLetter.city ? (
-                <>
-                  <span className="divider" />
-                  <span>{activeLetter.city}</span>
-                </>
-              ) : null}
-              <span className="divider" />
-              <span>{formatTime(activeLetter.createdAt)}</span>
-              {typeof activeLetter.fathomDepth === 'number' ? (
-                <>
-                  <span className="divider" />
-                  <span>{Math.round(activeLetter.fathomDepth * 100)}% depth</span>
-                </>
-              ) : null}
+            <div
+              className="row-between"
+              style={{ marginTop: 24, padding: '0 8px' }}
+            >
+              <div className="small" style={{ opacity: 0.5 }}>
+                from the deep visitor • {activeLetter.city ?? 'unknown'} •{' '}
+                {new Date(activeLetter.createdAt).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+                {' • '}
+                {Math.round(activeLetter.depth * 100)}% depth
+              </div>
+              <button
+                className="btn"
+                style={{ fontSize: 11, padding: '4px 10px' }}
+                onClick={() => onBury(activeLetter.id)}
+              >
+                bury
+              </button>
             </div>
           </div>
-        ) : null}
-
-        {/* LIVE section */}
-        {!activeLetter ? (
-          <>
-            <div className="label" style={{ marginTop: 22 }}>
-              Live · Present
-            </div>
-
-            {liveLetters.length === 0 ? (
-              <div className="inbox-empty" style={{ marginTop: 10 }}>
-                いま、誰の筆も入っていません。
-              </div>
-            ) : (
-              <div className="inbox-list">
-                {[...liveLetters]
-                  .slice()
-                  .reverse()
-                  .map((letter) => (
-                    <button
-                      key={letter.id}
-                      className="inbox-item"
-                      onClick={() => onSelectLetter(letter)}
+        ) : (
+          <div style={{ marginTop: 18 }}>
+            {showArchive ? (
+              <div className="archive-list">
+                {archiveLoading && (
+                  <div className="inbox-empty">fetching deep archive...</div>
+                )}
+                {!archiveLoading && archive.length === 0 && (
+                  <div className="inbox-empty">no past letters found.</div>
+                )}
+                {archive.map((l) => {
+                  const isMine = l.authorId === selfId
+                  return (
+                    <div
+                      key={l.id}
+                      className="archive-item"
+                      onClick={() => onSelectLetter(l)}
                     >
-                      <div className="inbox-item-title">{letter.text}</div>
-                      <div className="inbox-item-meta">
-                        <span>{letter.authorName ?? 'anonymous'}</span>
-                        {letter.city ? <span>· {letter.city}</span> : null}
-                        <span>· {formatTime(letter.createdAt)}</span>
+                      <div className="archive-text">{l.text}</div>
+                      <div className="archive-meta row-between">
+                        <span>{l.city ?? 'unknown'}</span>
+                        <span>{Math.round(l.depth * 100)}% depth</span>
                       </div>
-                    </button>
-                  ))}
-              </div>
-            )}
-
-            {/* ARCHIVE section */}
-            <div className="label" style={{ marginTop: 22 }}>
-              From the deep · Archive
-            </div>
-
-            {archiveLoading ? (
-              <div className="small" style={{ marginTop: 8 }}>
-                水底を確かめています…
-              </div>
-            ) : archive.length === 0 ? (
-              <div className="inbox-empty" style={{ marginTop: 10 }}>
-                水底はまだ静かです。
+                      {isMine && <div className="archive-mine-badge">your letter</div>}
+                    </div>
+                  )
+                })}
               </div>
             ) : (
-              <div className="inbox-list">
-                {archive.map((letter) => (
-                  <button
-                    key={letter.id}
-                    className="inbox-item"
-                    onClick={() => onSelectLetter(letter)}
-                  >
-                    <div className="inbox-item-title">{letter.text}</div>
-                    <div className="inbox-item-meta">
-                      <span>{letter.authorName ?? 'anonymous'}</span>
-                      {letter.city ? <span>· {letter.city}</span> : null}
-                      <span>· {formatTime(letter.createdAt)}</span>
-                      {typeof letter.fathomDepth === 'number' ? (
-                        <span>
-                          · {Math.round(letter.fathomDepth * 100)}% depth
-                        </span>
-                      ) : null}
-                    </div>
-                  </button>
-                ))}
+              <div className="live-list">
+                {liveLetters.length === 0 ? (
+                  <div className="inbox-empty">waiting for resonance...</div>
+                ) : (
+                  <div className="inbox-empty" style={{ opacity: 0.8 }}>
+                    {unreadCount} new letter{unreadCount > 1 ? 's' : ''} drifting
+                    near you.
+                    <br />
+                    <button
+                      className="btn btn-accent"
+                      style={{ marginTop: 12 }}
+                      onClick={() => onSelectLetter(liveLetters[0])}
+                    >
+                      read
+                    </button>
+                  </div>
+                )}
               </div>
             )}
-          </>
-        ) : null}
+          </div>
+        )}
       </div>
     </section>
   )

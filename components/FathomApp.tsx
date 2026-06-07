@@ -187,7 +187,7 @@ function EntranceStage({
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
-          <div className="descend-caption" style={{ fontSize: 16, letterSpacing: '0.1em' }}>
+          <div className="descend-caption" style={{ fontSize: 14, letterSpacing: '0.1em' }}>
             あなたの水底の座標（3つの単語）を入力してください。
           </div>
           <div style={{ position: 'relative' }}>
@@ -212,7 +212,7 @@ function EntranceStage({
               style={{
                 textAlign: 'center',
                 width: '320px',
-                fontSize: '18px',
+                fontSize: '16px',
                 padding: '16px',
                 background: 'rgba(255,255,255,0.06)',
                 border: `1px solid ${coordError ? 'rgba(255,100,100,0.4)' : 'rgba(255,255,255,0.15)'}`,
@@ -245,9 +245,6 @@ function EntranceStage({
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
-          <div className="descend-caption" style={{ fontSize: 16, letterSpacing: '0.1em' }}>
-            沿岸都市の喧騒から、深海の静寂へ。
-          </div>
           <div style={{ position: 'relative' }}>
             <input
               type="text"
@@ -262,7 +259,7 @@ function EntranceStage({
               style={{
                 textAlign: 'center',
                 width: '300px',
-                fontSize: '18px',
+                fontSize: '16px',
                 padding: '16px',
                 background: 'rgba(255,255,255,0.06)',
                 border: '1px solid rgba(255,255,255,0.15)',
@@ -303,7 +300,7 @@ function EntranceStage({
   return (
     <div className="descend-stage" aria-hidden={isLeaving}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
-        <div className="descend-caption" style={{ marginBottom: 24, opacity: 0.8, letterSpacing: '0.1em' }}>
+        <div className="descend-caption" style={{ marginBottom: 24, opacity: 0.8, letterSpacing: '0.1em', fontSize: 14 }}>
           {resolvedCity} の気象を受信しました。潜行の目的を選択してください。
         </div>
 
@@ -328,7 +325,6 @@ function EntranceStage({
 
 export function FathomApp() {
   const [city, setCity] = useState('')
-  // 🔽 修正：初期状態を空文字にしました。これで英文は出ません。
   const [draft, setDraft] = useState('')
   const [progress, setProgress] = useState(0)
   const [fathomMode, setFathomMode] = useState<FathomMode>('meditate')
@@ -593,6 +589,28 @@ export function FathomApp() {
 
       <div className="scene-vignette" />
 
+      <div style={{
+        position: 'fixed',
+        top: 32,
+        left: 0,
+        width: '100%',
+        textAlign: 'center',
+        pointerEvents: 'none',
+        zIndex: 100,
+        opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity),
+        transition: 'opacity 2s linear'
+      }}>
+        <div style={{
+          letterSpacing: '0.6em',
+          fontSize: '14px',
+          fontWeight: 300,
+          color: 'rgba(255,255,255,0.7)',
+          fontFamily: 'sans-serif'
+        }}>
+          F A T H O M
+        </div>
+      </div>
+
       {beaconMounted ? (
         <EntranceStage
           onDescend={handleDescend}
@@ -613,42 +631,43 @@ export function FathomApp() {
         }}
       >
         <div className="container">
-          <header className={`hero hero-floating ${heroPhaseClass}`}>
-            <div className="hero-chip">Fathom</div>
-            <h1>沿岸都市の喧騒から、深海の静寂へ。</h1>
-            <p>
-              Fathom
-              は、都市の現在気象を深海音と粒子運動へ変換し、書かれた手紙を他者の水底にも筆跡として届け、過去の手紙が深さに応じて静かに浮かび上がる、共鳴のためのプロジェクトです。
-            </p>
-
-            {phase === 'descending' ? (
+          
+          {hasDescended && !settled ? (
+            <div style={{ 
+              position: 'absolute', 
+              top: '40%', 
+              left: '50%', 
+              transform: 'translate(-50%, -50%)',
+              textAlign: 'center',
+              width: '100%',
+              opacity: phase === 'descending' ? 0.8 : 0,
+              transition: 'opacity 3s ease',
+              pointerEvents: 'none'
+            }}>
+              <p style={{
+                fontSize: '16px',
+                letterSpacing: '0.15em',
+                lineHeight: '2.4',
+                color: 'rgba(255,255,255,0.9)',
+                textShadow: '0 2px 10px rgba(0,0,0,0.5)'
+              }}>
+                都市のノイズを抜け、至高の孤独へ。<br/>
+                残るのは思考のゆらぎと、遠き共鳴だけ。
+              </p>
               <div
-                className="small"
                 style={{
-                  marginTop: 10,
-                  opacity: 0.6,
+                  marginTop: 24,
+                  opacity: 0.5,
                   letterSpacing: '0.12em',
-                  textTransform: 'lowercase',
+                  fontSize: 12,
                 }}
               >
                 descending — {Math.round(descent * 100)}%
-                <button
-                  type="button"
-                  className="btn"
-                  style={{
-                    marginLeft: 12,
-                    padding: '4px 10px',
-                    fontSize: 12,
-                  }}
-                  onClick={() => skipDescent()}
-                >
-                  skip
-                </button>
               </div>
-            ) : null}
-          </header>
+            </div>
+          ) : null}
 
-          {hasDescended ? (
+          {hasDescended && settled ? (
             <div className="panel-stack three">
               <section className="panel glass-shell">
                 <div className="panel-inner">
@@ -782,8 +801,8 @@ export function FathomApp() {
                         animateKey={composeKey}
                         text={composedText}
                         fontUrl="/fonts/ZenKurenaido-Regular.ttf"
-                        fontSize={72}
-                        lineHeight={104}
+                        fontSize={36} 
+                        lineHeight={64}
                         letterSpacing={1.2}
                         className="handwritten-svg"
                         strokeColor="rgba(236,246,255,0.96)"

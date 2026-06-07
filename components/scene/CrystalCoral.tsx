@@ -1,233 +1,98 @@
 'use client'
 
+import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { useEffect, useMemo, useRef } from 'react'
+import { Sphere, MeshTransmissionMaterial, Float } from '@react-three/drei'
 import * as THREE from 'three'
-import {
-  resonanceHueShift,
-  type CrystalIdentity,
-} from '@/lib/identity/crystalSeed'
 
-type CrystalCoralProps = {
-  progress: number
-  windSpeed: number
-  resonancePulse: number
-  resonanceEnergy: number
-  identity: CrystalIdentity
-  /** 0..1, supplied by useFathomDescent. */
-  descent: number
+interface CrystalCoralProps {
+  progress?: number
+  resonancePulse?: number
+  resonanceEnergy?: number
+  identity?: any
 }
 
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, v))
-}
-
-function hslColor(hueDeg: number, sat: number, light: number) {
-  const c = new THREE.Color()
-  c.setHSL((hueDeg % 360) / 360, sat, light)
-  return c
-}
-
-export function CrystalCoral({
-  progress,
-  windSpeed,
-  resonancePulse,
-  resonanceEnergy,
-  identity,
-  descent,
+export function CrystalCoral({ 
+  progress = 0, 
+  resonancePulse = 0,
 }: CrystalCoralProps) {
-  const groupRef = useRef<THREE.Group>(null)
-  const materialRef = useRef<THREE.MeshPhysicalMaterial>(null)
-  const edgeMaterialRef = useRef<THREE.LineBasicMaterial>(null)
-  const pointsMaterialRef = useRef<THREE.PointsMaterial>(null)
-  const resonanceRef = useRef(0)
-
-  const {
-    baseColor,
-    emissiveColor,
-    edgeColor,
-    pointColor,
-    resonanceColor,
-    geometry,
-    edgesGeometry,
-  } = useMemo(() => {
-    const baseColor = hslColor(identity.hueDeg, identity.saturation, identity.lightness)
-    const emissiveColor = hslColor(
-      resonanceHueShift(identity),
-      Math.min(0.78, identity.saturation + 0.15),
-      Math.min(0.78, identity.lightness + 0.06)
-    )
-    const edgeColor = hslColor(
-      identity.hueDeg,
-      Math.min(0.4, identity.saturation - 0.1),
-      Math.min(0.92, identity.lightness + 0.22)
-    )
-    const pointColor = hslColor(
-      identity.hueDeg,
-      Math.min(0.5, identity.saturation - 0.05),
-      Math.min(0.94, identity.lightness + 0.24)
-    )
-    const resonanceColor = hslColor(
-      resonanceHueShift(identity),
-      Math.min(0.85, identity.saturation + 0.2),
-      Math.min(0.86, identity.lightness + 0.16)
-    )
-
-    const detail = clamp(identity.detail, 1, 5)
-    const geo = new THREE.IcosahedronGeometry(1.08, detail)
-    const edgeGeo = new THREE.EdgesGeometry(geo, 24)
-
-    return {
-      baseColor,
-      emissiveColor,
-      edgeColor,
-      pointColor,
-      resonanceColor,
-      geometry: geo,
-      edgesGeometry: edgeGeo,
-    }
-  }, [identity])
-
-  useEffect(() => {
-    return () => {
-      geometry.dispose()
-      edgesGeometry.dispose()
-    }
-  }, [edgesGeometry, geometry])
-
-  useEffect(() => {
-    resonanceRef.current = Math.min(
-      1.6,
-      resonanceRef.current + 0.18 + resonanceEnergy * 1.2
-    )
-  }, [resonanceEnergy, resonancePulse])
+  const outerMatRef = useRef<any>(null)
+  const innerMatRef = useRef<THREE.MeshStandardMaterial>(null)
+  
+  const prevPulse = useRef(resonancePulse)
+  const flashEnergy = useRef(0)
 
   useFrame((state, delta) => {
-    const group = groupRef.current
-    const material = materialRef.current
-    const edgeMaterial = edgeMaterialRef.current
-    const pointsMaterial = pointsMaterialRef.current
-    if (!group || !material || !edgeMaterial || !pointsMaterial) return
+    // 1. パルス（共鳴）の検知
+    // 手紙を書いたり、誰かの気配を受信した瞬間にエネルギーが跳ね上がる
+    if (resonancePulse > prevPulse.current) {
+      flashEnergy.current = 1.0 // 閃光のエネルギーをMAXに
+      prevPulse.current = resonancePulse
+    }
 
-    const t = state.clock.elapsedTime
-    resonanceRef.current = THREE.MathUtils.damp(resonanceRef.current, 0, 2.4, delta)
+    // エネルギーをゆっくり減衰させる（余韻を残す）
+    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 2.5)
 
-    const windLean = clamp(windSpeed / 22, 0, 0.3)
-    const pressure = clamp(progress, 0, 1)
-    const resonance = resonanceRef.current
-    const d = clamp(descent, 0, 1)
+    const time = state.clock.elapsedTime
 
-    group.rotation.y += delta * (identity.rotationDriftY + pressure * 0.05)
-    group.rotation.x =
-      Math.sin(t * (0.28 + identity.rotationDriftX + windLean * 0.18)) * 0.05
-    group.rotation.z = Math.sin(t * 0.18) * 0.035
+    // 2. 内なる蒼炎（コア）の呼吸と脈動
+    if (innerMatRef.current) {
+      // 普段は1/fゆらぎのように、複数のサイン波を重ねて静かに明滅（0.2〜0.5）
+      const baseGlow = 0.3 + Math.sin(time * 0.8) * 0.1 + Math.sin(time * 0.3) * 0.1
+      
+      // 共鳴時は圧倒的な閃光（最大4.0）を放つ
+      const flashGlow = flashEnergy.current * 4.0
+      innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
+    }
 
-    const baseScale = identity.scale * (1 + pressure * 0.26)
-    const ambientPulse = 1 + Math.sin(t * identity.pulseSpeed) * identity.pulseAmp
-    const resonancePulseScale = 1 + resonance * 0.08
-    // During descent, the crystal is slightly smaller and grows into place.
-    const descentScale = THREE.MathUtils.lerp(0.72, 1.0, d)
+    // 3. 黒曜の液体レンズ（外殻）の透過と屈折
+    if (outerMatRef.current) {
+      // 普段は重厚な漆黒（#020305）、共鳴時は完全に透明なプリズム（#ffffff）へ劇的に変化
+      const baseColor = new THREE.Color('#020305')
+      const flashColor = new THREE.Color('#ffffff')
+      outerMatRef.current.color.lerpColors(baseColor, flashColor, flashEnergy.current * 0.9)
 
-    group.scale.setScalar(baseScale * ambientPulse * resonancePulseScale * descentScale)
-
-    material.roughness = THREE.MathUtils.lerp(
-      material.roughness,
-      identity.roughness - pressure * 0.06,
-      delta * 2
-    )
-    material.transmission = THREE.MathUtils.lerp(
-      material.transmission,
-      identity.transmission + pressure * 0.08,
-      delta * 2
-    )
-    material.thickness = THREE.MathUtils.lerp(
-      material.thickness,
-      identity.thickness + pressure * 0.9,
-      delta * 2
-    )
-    material.ior = THREE.MathUtils.lerp(
-      material.ior,
-      identity.ior + pressure * 0.05,
-      delta * 2
-    )
-
-    const resonanceMix = clamp(resonance * 0.85, 0, 0.85)
-    const targetBase = baseColor.clone().lerp(resonanceColor, resonanceMix * 0.55)
-    material.color.lerp(targetBase, delta * 2.6)
-
-    const targetEmissive = emissiveColor.clone().lerp(resonanceColor, resonanceMix)
-    material.emissive.lerp(targetEmissive, delta * 2.6)
-
-    material.emissiveIntensity = THREE.MathUtils.lerp(
-      material.emissiveIntensity,
-      (identity.emissiveBoost + pressure * 0.22 + resonance * 0.3) *
-        THREE.MathUtils.lerp(0.15, 1.0, d),
-      delta * 2.4
-    )
-
-    // Material/edges/points opacity ramp up with descent.
-    const matOpacityTarget = THREE.MathUtils.lerp(0.35, 0.92, d)
-    material.opacity = THREE.MathUtils.lerp(material.opacity, matOpacityTarget, delta * 2.4)
-
-    edgeMaterial.color.lerp(
-      edgeColor.clone().lerp(resonanceColor, resonanceMix * 0.6),
-      delta * 2.6
-    )
-    edgeMaterial.opacity = THREE.MathUtils.lerp(
-      edgeMaterial.opacity,
-      (0.18 + pressure * 0.15 + resonance * 0.18) * THREE.MathUtils.lerp(0.2, 1.0, d),
-      delta * 2.4
-    )
-
-    pointsMaterial.color.lerp(
-      pointColor.clone().lerp(resonanceColor, resonanceMix * 0.5),
-      delta * 2.6
-    )
-    pointsMaterial.opacity = THREE.MathUtils.lerp(
-      pointsMaterial.opacity,
-      (0.08 + pressure * 0.1 + resonance * 0.16) * THREE.MathUtils.lerp(0.2, 1.0, d),
-      delta * 2.4
-    )
+      // 共鳴時は表面の曇り（roughness）が消え、純度の高いクリスタルになる
+      outerMatRef.current.roughness = 0.25 - flashEnergy.current * 0.2
+    }
   })
 
   return (
-    <group ref={groupRef} position={[0, 0.05, 0]}>
-      <mesh geometry={geometry}>
-        <meshPhysicalMaterial
-          ref={materialRef}
-          color={baseColor}
-          emissive={emissiveColor}
-          emissiveIntensity={identity.emissiveBoost}
-          roughness={identity.roughness}
-          metalness={0.04}
-          transmission={identity.transmission}
-          thickness={identity.thickness}
-          transparent
-          opacity={0.92}
-          ior={identity.ior}
-        />
-      </mesh>
+    <group scale={1.2}>
+      {/* 
+        [ 内なるコア：蒼い静炎 ]
+        常に浮遊（Float）しながら、エネルギーを蓄えている思考の核 
+      */}
+      <Float speed={2} rotationIntensity={0.8} floatIntensity={0.6}>
+        <Sphere args={[0.35, 32, 32]}>
+          <meshStandardMaterial
+            ref={innerMatRef}
+            color="#ffffff"
+            emissive="#8fd8ff" // 蒼白い炎
+            emissiveIntensity={0.5}
+            toneMapped={false} // これをfalseにすることで、光が白飛びして「オーラ」になる
+          />
+        </Sphere>
+      </Float>
 
-      <lineSegments geometry={edgesGeometry}>
-        <lineBasicMaterial
-          ref={edgeMaterialRef}
-          color={edgeColor}
-          transparent
-          opacity={0.2}
+      {/* 
+        [ 外殻：黒曜の液体レンズ ]
+        周囲のノイズを遮断しつつ、背景を美しく歪ませる1/fゆらぎの重力レンズ 
+      */}
+      <Sphere args={[1.2, 64, 64]}>
+        <MeshTransmissionMaterial
+          ref={outerMatRef}
+          thickness={2.5}            // 水の厚み（値が大きいほど背景がグニャリと屈折する）
+          roughness={0.25}           // 表面のわずかな曇り（ノイズを遮断する質感）
+          transmission={1}           // 100%のガラス/液体透過
+          ior={1.33}                 // 水の屈折率（1.33）
+          chromaticAberration={0.08} // 光の分散（レンズの縁に虹色の滲みを生む）
+          distortion={0.5}           // 1/fゆらぎ（表面の不規則なうねり）
+          temporalDistortion={0.15}  // うねりの時間変化スピード（ゆっくり）
+          color="#020305"            // ベースは黒曜石
+          backside                   // 裏側の屈折も計算して深みを出す
         />
-      </lineSegments>
-
-      <points geometry={geometry} scale={1.01}>
-        <pointsMaterial
-          ref={pointsMaterialRef}
-          size={0.026}
-          color={pointColor}
-          transparent
-          opacity={0.1}
-          depthWrite={false}
-          blending={THREE.AdditiveBlending}
-        />
-      </points>
+      </Sphere>
     </group>
   )
 }
