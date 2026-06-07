@@ -37,47 +37,63 @@ export function CrystalCoral({
 
     const time = state.clock.elapsedTime
 
-    // 内なるコア：蒼い静炎の明滅
+    // 1. 内なるコア：蒼炎の明滅
     if (innerMatRef.current) {
-      const baseGlow = 0.5 + Math.sin(time * 0.8) * 0.2
+      const baseGlow = 0.4 + Math.sin(time * 0.8) * 0.1
       const flashGlow = flashEnergy.current * 4.0
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
     }
 
-    // 外殻：黒曜の液体レンズの「常時ゆらめき」
+    // 2. 外殻：内部の屈折と色の変化
     if (outerMatRef.current) {
-      const baseColor = new THREE.Color('#0a1526')
+      const baseColor = new THREE.Color('#0a1322')
       const flashColor = new THREE.Color('#8fd8ff')
       outerMatRef.current.color.lerpColors(baseColor, flashColor, flashEnergy.current * 0.7)
 
-      // 🚨 修正：常に表面がトロトロと波打つように、基本のdistortion（歪み）と速度を上げる
-      const baseDistortion = 0.6 + (windSpeed * 0.03)
+      const baseDistortion = 0.5 + (windSpeed * 0.04)
       outerMatRef.current.distortion = THREE.MathUtils.lerp(
         outerMatRef.current.distortion,
-        baseDistortion + flashEnergy.current * 1.5, // 共鳴時に激しく波打つ
+        baseDistortion + flashEnergy.current * 1.5,
         delta * 3
       )
-      // うねりの速度も共鳴時に上がる
-      outerMatRef.current.temporalDistortion = 0.4 + flashEnergy.current * 1.5
+      outerMatRef.current.temporalDistortion = 0.3 + flashEnergy.current * 1.5
     }
 
-    // 🚨 修正：球体全体が「呼吸」するように、ゆっくりと微細にスケールを伸縮させる
+    // 3. 🚨 シルエット自体の「1/f 流体うねり」と共鳴振動
     if (groupRef.current) {
-      const breathe = Math.sin(time * 1.2) * 0.015
-      const targetScale = 0.85 + breathe + flashEnergy.current * 0.06
-      groupRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), delta * 5)
+      // 球体をゆっくり回転させ、環境光の反射を踊らせる
+      groupRef.current.rotation.y += delta * 0.15
+      groupRef.current.rotation.z = Math.sin(time * 0.4) * 0.05
+
+      // 常にX, Y, Z軸を別々のリズムで伸縮させ、生きている水滴のようなうねりを作る
+      const wobbleX = 1 + Math.sin(time * 0.7) * 0.025 + Math.sin(time * 1.3) * 0.015
+      const wobbleY = 1 + Math.cos(time * 0.8) * 0.025 + Math.cos(time * 1.4) * 0.015
+      const wobbleZ = 1 + Math.sin(time * 0.9) * 0.025 + Math.cos(time * 1.5) * 0.015
+
+      const baseScale = 0.85
+      
+      // 共鳴時：一気に膨張し、激しく振動する
+      const flashExpand = flashEnergy.current * 0.12
+      const flashVibrateX = Math.sin(time * 20) * flashEnergy.current * 0.03
+      const flashVibrateY = Math.cos(time * 23) * flashEnergy.current * 0.03
+
+      const targetX = baseScale * wobbleX + flashExpand + flashVibrateX
+      const targetY = baseScale * wobbleY + flashExpand + flashVibrateY
+      const targetZ = baseScale * wobbleZ + flashExpand
+
+      groupRef.current.scale.lerp(new THREE.Vector3(targetX, targetY, targetZ), delta * 5)
     }
   })
 
   return (
     <group ref={groupRef} scale={0.85} position={[0, -0.2, 0]}>
-      {/* 光と反射環境（ガラスの質感を出すため必須） */}
+      {/* 光と反射環境 */}
       <ambientLight intensity={0.2} />
       <directionalLight position={[5, 5, 2]} intensity={1.5} color="#8fd8ff" />
       <Environment preset="night" />
 
       {/* 内なるコア */}
-      <Float speed={2.5} rotationIntensity={1.5} floatIntensity={0.6}>
+      <Float speed={2} rotationIntensity={1} floatIntensity={0.5}>
         <Sphere args={[0.25, 32, 32]}>
           <meshStandardMaterial
             ref={innerMatRef}
@@ -89,18 +105,18 @@ export function CrystalCoral({
         </Sphere>
       </Float>
 
-      {/* 外殻 */}
+      {/* 外殻：黒曜の液体レンズ */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={2.5}
+          thickness={3.0}
           roughness={0.05}
           transmission={1}
           ior={1.45}
-          chromaticAberration={0.08}
-          distortion={0.6}           // 初期値も高く設定
-          temporalDistortion={0.4}   // うねりの初期速度
-          color="#0a1526"
+          chromaticAberration={0.06}
+          distortion={0.5}
+          temporalDistortion={0.3}
+          color="#0a1322"
           envMapIntensity={2.0}
         />
       </Sphere>

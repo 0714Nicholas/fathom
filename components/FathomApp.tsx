@@ -19,49 +19,28 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
-// 🚨 修正：安っぽいボタンを極限まで削ぎ落としたCSS
+// 🚨 修正：背景や枠線を完全に消し去った、至高のHUDボタンスタイル
 const hudStyles = `
   .hud-btn {
-    background: none;
+    background: transparent;
     border: none;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.4);
     font-family: monospace;
     font-size: 10px;
     letter-spacing: 0.25em;
     text-transform: uppercase;
     cursor: pointer;
-    padding: 6px 12px;
-    position: relative;
-    transition: color 0.4s ease;
-  }
-  .hud-btn::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 0;
-    height: 1px;
-    background-color: rgba(143, 216, 255, 0.8);
-    transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    padding: 4px 8px;
+    transition: all 0.3s ease;
   }
   .hud-btn:hover {
-    color: rgba(143, 216, 255, 0.9);
-  }
-  .hud-btn:hover::after {
-    width: 60%;
+    color: rgba(143, 216, 255, 1);
+    text-shadow: 0 0 8px rgba(143, 216, 255, 0.5);
   }
   .hud-btn:disabled {
     color: rgba(255, 255, 255, 0.1);
     cursor: default;
-  }
-  .hud-btn:disabled:hover::after {
-    width: 0;
-  }
-  .hud-input::placeholder {
-    color: rgba(255, 255, 255, 0.2);
-    font-family: monospace;
-    letter-spacing: 0.1em;
+    text-shadow: none;
   }
 `
 
@@ -472,7 +451,7 @@ export function FathomApp() {
               <div style={{ marginBottom: 12 }}>Pressure: {currentPressure} atm</div>
               <div style={{ opacity: 0.4, marginBottom: 4, fontSize: 9 }}>[ COORDINATE ]</div>
               <div style={{ marginBottom: 12 }}>{selfId.replace(/-/g, ' ')}</div>
-              <button onClick={() => downloadCrystalMemory(selfId, progress)} style={{ background: 'none', border: 'none', color: '#8fd8ff', opacity: 0.7, cursor: 'pointer', padding: 0, fontSize: 9, letterSpacing: '0.1em', textDecoration: 'underline', textUnderlineOffset: '4px' }}>save as memory</button>
+              <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase' }}>save as memory</button>
             </div>
 
             {/* 右上 [RESONANCE] */}
@@ -490,13 +469,13 @@ export function FathomApp() {
             {/* 下辺中央 [ACTION] & [COMPOSE] */}
             <div className={visibilityClass(settled, 4)} style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '460px', display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
               
-              {/* 🚨 修正：手紙の表示サイズを極小化 (fontSize: 15) */}
-              <div style={{ width: '100%', height: 60, position: 'relative', marginBottom: 24 }}>
+              {/* 🚨 修正：文字を極小化 (fontSize: 12) し、静かな主張に */}
+              <div style={{ width: '100%', height: 48, position: 'relative', marginBottom: 24 }}>
                 {composedText ? (
                   <HandwrittenLetter
                     animateKey={composeKey} text={composedText} fontUrl="/fonts/ShipporiMincho-Regular.ttf"
-                    fontSize={15} lineHeight={28} letterSpacing={1.2} className="handwritten-svg"
-                    strokeColor="rgba(236,246,255,0.7)" glowColor="rgba(143,216,255,0.1)" strokeWidth={1.2}
+                    fontSize={12} lineHeight={20} letterSpacing={1.2} className="handwritten-svg"
+                    strokeColor="rgba(236,246,255,0.7)" glowColor="rgba(143,216,255,0.1)" strokeWidth={1.0}
                     onStrokeImpulse={(payload) => { audio.triggerFrictionImpulse({ intensity: payload.intensity, durationMs: payload.durationMs, color: 0.84 }); triggerResonance(Math.max(0.16, payload.intensity)); sendResonance(payload.intensity * 0.85) }}
                     onComplete={() => { audio.triggerFrictionImpulse({ intensity: 0.16, durationMs: 90, color: 0.78 }); triggerResonance(0.14) }}
                   />
@@ -509,19 +488,18 @@ export function FathomApp() {
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder="write a quiet letter..."
-                  className="hud-input"
-                  style={{ flex: 1, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'sans-serif', fontSize: '12px', padding: '8px 0', outline: 'none', resize: 'none', height: '32px', lineHeight: '16px', letterSpacing: '0.05em' }}
+                  style={{ flex: 1, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'sans-serif', fontSize: '11px', padding: '8px 0', outline: 'none', resize: 'none', height: '32px', lineHeight: '16px', letterSpacing: '0.05em' }}
                 />
-                <button className="hud-btn" onClick={() => void handleSendLetter()} disabled={!canSend || status !== 'subscribed'} style={{ color: canSend ? '#8fd8ff' : 'rgba(255,255,255,0.2)' }}>
-                  send
+                <button className="hud-btn" onClick={() => void handleSendLetter()} disabled={!canSend || status !== 'subscribed'}>
+                  [ send ]
                 </button>
               </div>
 
-              {/* 🚨 修正：洗練されたオーディオコントロールボタン */}
+              {/* オーディオコントロール */}
               <div style={{ display: 'flex', gap: 24, marginTop: 24 }}>
-                <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>resume</button>
-                <button className="hud-btn" onClick={() => void audio.suspend()}>suspend</button>
-                <button className="hud-btn" onClick={() => void audio.stop()}>stop</button>
+                <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ resume ]</button>
+                <button className="hud-btn" onClick={() => void audio.suspend()}>[ suspend ]</button>
+                <button className="hud-btn" onClick={() => void audio.stop()}>[ stop ]</button>
               </div>
             </div>
           </>
