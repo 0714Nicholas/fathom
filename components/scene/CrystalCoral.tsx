@@ -34,26 +34,25 @@ export function CrystalCoral({
       prevPulse.current = resonancePulse
     }
     
-    // 🚨 修正：減衰スピードを遅くし（2.0 -> 0.4）、共鳴の爆発と透明な状態を「長く持続」させる
+    // 共鳴の余韻はゆっくりと（ロングディレイ）
     flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.4)
 
     const time = state.clock.elapsedTime
 
-    // 1. 内なるコア：圧縮された蒼炎
+    // 1. 内なるコア：常に限界突破した蒼炎のプラズマ
     if (innerMatRef.current) {
-      // 🚨 修正：暗い液体を透過させるため、ベースの発光をさらに強く
-      const baseGlow = 4.0 + Math.sin(time * 2.0) * 1.0 
-      const flashGlow = flashEnergy.current * 8.0
+      // 🚨 修正：平時でも、かつての共鳴時レベルの圧倒的な発光を維持する
+      const baseGlow = 8.0 + Math.sin(time * 3.0) * 2.0 
+      const flashGlow = flashEnergy.current * 6.0 // 打つと限界を超えて眩く
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
-      // 共鳴時はさらに激しくうねる
-      innerMatRef.current.distort = 0.4 + flashEnergy.current * 0.5
-      innerMatRef.current.speed = 4.0 + flashEnergy.current * 6.0
+      // 🚨 修正：常に激しく脈動し、グツグツとうねり続ける
+      innerMatRef.current.distort = 0.8 + flashEnergy.current * 0.4
+      innerMatRef.current.speed = 10.0 + flashEnergy.current * 5.0
     }
 
     // 2. 外殻：黒曜の液体レンズ
     if (outerMatRef.current) {
-      // 🚨 修正：減衰色を真っ黒ではなく「極めて深い群青色」にし、透明感を出す
       const baseAtten = new THREE.Color('#030b1c') 
       const flashAtten = new THREE.Color('#ffffff') // 共鳴時は完全なクリア
       outerMatRef.current.attenuationColor.lerpColors(baseAtten, flashAtten, flashEnergy.current)
@@ -96,36 +95,35 @@ export function CrystalCoral({
       <directionalLight position={[5, 5, 2]} intensity={1.5} color="#8fd8ff" />
       <Environment preset="night" />
 
-      {/* 内なるコア */}
+      {/* 内なるコア：常に激しく燃えるプラズマ */}
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-        {/* 🚨 修正：中身のプラズマを一回り大きく（0.3 -> 0.4）して存在感をアピール */}
         <Sphere args={[0.4, 64, 64]}> 
           <MeshDistortMaterial
             ref={innerMatRef}
             color="#ffffff"
-            emissive="#0055ff" // 鮮烈な蒼
-            emissiveIntensity={4.0}
+            emissive="#0055ff"
+            emissiveIntensity={8.0} // 🚨 初期値から圧倒的な光量
             toneMapped={false}
-            distort={0.4} 
-            speed={4}     
+            distort={0.8} // 🚨 初期値から激しくうねる
+            speed={10}    // 🚨 初期値から速く動く
           />
         </Sphere>
       </Float>
 
-      {/* 外殻 */}
+      {/* 外殻：黒曜の液体レンズ */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={1.5}             // 🚨 修正：2.8 -> 1.5 （厚みを減らして光を透過させる）
+          thickness={1.5}             
           roughness={0.05}            
           transmission={1}            
-          ior={1.33}                  // 🚨 修正：1.45 -> 1.33 （水の屈折率にし、中身を直接見えやすくする）
+          ior={1.33}                  
           chromaticAberration={0.08}  
           distortion={0.5}            
           temporalDistortion={0.3}    
           color="#ffffff"             
-          attenuationColor="#030b1c"  // 🚨 修正：光が減衰した時の色
-          attenuationDistance={1.8}   // 🚨 修正：0.5 -> 1.8 （光が吸収される距離を伸ばし、中のプラズマを外へ逃がす）
+          attenuationColor="#030b1c"  
+          attenuationDistance={1.8}   
           envMapIntensity={2.0}
         />
       </Sphere>
