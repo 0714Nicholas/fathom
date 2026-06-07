@@ -38,22 +38,30 @@ export function CrystalCoral({
 
     // 1. 内なるコア：常に激しく燃えるプラズマ
     if (innerMatRef.current) {
-      // 🚨 平時から圧倒的な発光（6.0）を維持。共鳴時はさらに白飛びするほど（+8.0）光る。
-      const baseGlow = 6.0 + Math.sin(time * 3.0) * 1.5 
-      const flashGlow = flashEnergy.current * 8.0 
+      // プラズマの発光は常に限界突破させておく（重い外殻を貫通させるため）
+      const baseGlow = 8.0 + Math.sin(time * 3.0) * 2.0 
+      const flashGlow = flashEnergy.current * 10.0 
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
-      // 常に激しく脈動
       innerMatRef.current.distort = 0.6 + flashEnergy.current * 0.4
       innerMatRef.current.speed = 8.0 + flashEnergy.current * 6.0
     }
 
-    // 2. 外殻：完全にクリアな液体レンズ
+    // 2. 外殻：深淵の重厚な液体レンズ
     if (outerMatRef.current) {
-      // 🚨 変更：平時から「かすかに青みを帯びた透明（クリア）」にする
-      const baseAtten = new THREE.Color('#b3dbff') 
-      const flashAtten = new THREE.Color('#ffffff') // 共鳴時は完全な無色透明
+      // 🚨 黄金比その1：色は「極めて深い蒼黒（深海の闇）」
+      const baseAtten = new THREE.Color('#020816') 
+      const flashAtten = new THREE.Color('#a8dcff') // 共鳴時は透き通る蒼へ
       outerMatRef.current.attenuationColor.lerpColors(baseAtten, flashAtten, flashEnergy.current)
+
+      // 🚨 黄金比その2：光の透過距離を「動的」に変化させる
+      const baseDistance = 0.85 // 平時は少し光が進むと真っ黒に吸収される（重厚感）
+      const flashDistance = 4.0 // 共鳴時は奥まで完全に光が通る（解放）
+      outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(
+        outerMatRef.current.attenuationDistance || baseDistance,
+        baseDistance + (flashDistance - baseDistance) * flashEnergy.current,
+        delta * 4 // 開放は素早く、戻るのはflashEnergyの0.4のスピードに依存する
+      )
 
       const baseDistortion = 0.5 + (windSpeed * 0.04)
       outerMatRef.current.distortion = THREE.MathUtils.lerp(
@@ -75,7 +83,7 @@ export function CrystalCoral({
 
       const baseScale = 0.85
       
-      const flashExpand = flashEnergy.current * 0.15
+      const flashExpand = flashEnergy.current * 0.12
       const flashVibrateX = Math.sin(time * 20) * flashEnergy.current * 0.03
       const flashVibrateY = Math.cos(time * 23) * flashEnergy.current * 0.03
 
@@ -93,14 +101,14 @@ export function CrystalCoral({
       <directionalLight position={[5, 5, 2]} intensity={1.5} color="#8fd8ff" />
       <Environment preset="night" />
 
-      {/* 内なるコア：剥き出しの蒼炎 */}
+      {/* 内なるコア：常に激しく燃えるプラズマ */}
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-        <Sphere args={[0.4, 64, 64]}> 
+        <Sphere args={[0.35, 64, 64]}> 
           <MeshDistortMaterial
             ref={innerMatRef}
             color="#ffffff"
-            emissive="#0055ff" // 鮮烈なプラズマブルー
-            emissiveIntensity={6.0}
+            emissive="#0044ff" // 深く、暴力的な青
+            emissiveIntensity={8.0}
             toneMapped={false}
             distort={0.6} 
             speed={8}     
@@ -108,21 +116,20 @@ export function CrystalCoral({
         </Sphere>
       </Float>
 
-      {/* 外殻：クリアな水滴レンズ */}
+      {/* 外殻：重厚な深海レンズ */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={1.5}             
-          roughness={0.02}            // 🚨 曇りを極限まで無くし、ツルツルでクリアに
+          thickness={2.2}             // 🚨 重厚感を出すために厚みを復活
+          roughness={0.03}            // 艶やかで冷たい質感
           transmission={1}            
-          ior={1.33}                  
-          chromaticAberration={0.06}  
+          ior={1.42}                  // 🚨 屈折率を少し上げ、外周を暗く歪ませる
+          chromaticAberration={0.05}  
           distortion={0.5}            
           temporalDistortion={0.3}    
           color="#ffffff"             
-          attenuationColor="#b3dbff"  // 🚨 ベースをクリアな水色に
-          attenuationDistance={3.0}   // 🚨 光の吸収距離を大幅に伸ばし、中身を完全透過させる
           envMapIntensity={2.0}
+          // attenuationColor と attenuationDistance は useFrame で動的に制御
         />
       </Sphere>
     </group>
