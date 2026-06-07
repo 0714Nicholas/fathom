@@ -72,14 +72,15 @@ export function LetterInbox({
           <HandwrittenLetter
             animateKey={activeLetter.id}
             text={activeLetter.text}
-            fontUrl="/fonts/ZenKurenaido-Regular.ttf"
-            fontSize={24} 
-            lineHeight={40}
-            letterSpacing={1.1}
+            // 🚨 美しい明朝体と縮小されたフォントサイズ
+            fontUrl="/fonts/ShipporiMincho-Regular.ttf"
+            fontSize={20} 
+            lineHeight={32}
+            letterSpacing={1.2}
             className="handwritten-svg"
-            strokeColor="rgba(232,246,255,0.94)"
-            glowColor="rgba(143,216,255,0.28)"
-            strokeWidth={2.0}
+            strokeColor="rgba(232,246,255,0.9)"
+            glowColor="rgba(143,216,255,0.2)"
+            strokeWidth={1.5}
             onStrokeImpulse={(payload) => {
               onActiveStrokeImpulse(payload.intensity, payload.durationMs)
             }}

@@ -19,6 +19,21 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
+// 🔽 HUD用の統一されたボタンスタイル（計器風）
+const hudBtnStyle = {
+  background: 'rgba(255, 255, 255, 0.03)',
+  border: '1px solid rgba(255, 255, 255, 0.15)',
+  color: 'rgba(255, 255, 255, 0.5)',
+  padding: '6px 16px',
+  fontSize: '10px',
+  letterSpacing: '0.15em',
+  fontFamily: 'monospace',
+  cursor: 'pointer',
+  textTransform: 'uppercase' as const,
+  borderRadius: '2px',
+  transition: 'all 0.3s ease'
+}
+
 function useSelfId(): string {
   const [selfId] = useState(() => {
     if (typeof window === 'undefined') return 'server'
@@ -112,10 +127,6 @@ function ageTier(createdAtMs: number, now: number = Date.now()): 0 | 1 | 2 | 3 |
   if (elapsedMs < 3 * day) return 3
   if (elapsedMs < 14 * day) return 4
   return 5
-}
-
-function ageTierClass(tier: ReturnType<typeof ageTier>): string {
-  return `age-tier-${tier}`
 }
 
 function ModeSelector({ 
@@ -552,28 +563,12 @@ export function FathomApp() {
     triggerResonance(0.18)
   }, [audio, beginDescent, triggerResonance])
 
-  const archiveAmbientTier = useMemo(() => {
-    if (archive.length === 0) return 0
-    let oldest = archive[0]
-    for (const l of archive) {
-      if (l.createdAt < oldest.createdAt) oldest = l
-    }
-    return ageTier(oldest.createdAt) as 0 | 1 | 2 | 3 | 4 | 5
-  }, [archive])
-
-  const activeTier = useMemo(() => {
-    if (!activeLetter) return 0
-    if (activeLetter.source === 'live') return 0
-    return ageTier(activeLetter.createdAt)
-  }, [activeLetter])
-
   const uiOpacity = useMemo(() => {
     if (fathomMode !== 'sleep' || !settled) return 1.0
     const ratio = Math.max(0, (progress - 0.25) / 0.75)
     return Math.max(0.08, 1.0 - ratio * 1.5)
   }, [fathomMode, settled, progress])
 
-  // 水深に応じた水圧（1atm = 地上, 10m潜るごとに約1atm増加）のダミー演出
   const currentPressure = (1 + progress * 10).toFixed(2)
 
   return (
@@ -592,7 +587,7 @@ export function FathomApp() {
 
       <div className="scene-vignette" />
 
-      {/* 🔽 完全なHUDタイポグラフィ（FATHOMロゴ） */}
+      {/* 🔽 HUDタイポグラフィ（FATHOMロゴ） */}
       <div style={{
         position: 'fixed',
         top: 32,
@@ -609,7 +604,7 @@ export function FathomApp() {
           fontSize: '12px',
           fontWeight: 300,
           color: 'rgba(255,255,255,0.7)',
-          fontFamily: 'monospace' // SFチックなHUDに合わせ等幅に
+          fontFamily: 'monospace'
         }}>
           F A T H O M
         </div>
@@ -635,7 +630,7 @@ export function FathomApp() {
           zIndex: 50,
           opacity: uiOpacity, 
           transition: 'opacity 2s linear',
-          pointerEvents: 'none' // クリックは下の要素に貫通させる
+          pointerEvents: 'none'
         }}
       >
         {hasDescended && !settled ? (
@@ -665,7 +660,7 @@ export function FathomApp() {
           </div>
         ) : null}
 
-        {/* 🔽 ここから HUD 2.0 (枠のない情報空間) 🔽 */}
+        {/* 🔽 HUD 2.0 (計器化) 🔽 */}
         {hasDescended && settled ? (
           <>
             {/* 左上 [SURFACE] */}
@@ -737,23 +732,24 @@ export function FathomApp() {
             {/* 下辺中央 [ACTION] & [COMPOSE] */}
             <div className={visibilityClass(settled, 4)} style={{
               position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)',
-              width: '100%', maxWidth: '600px', display: 'flex', flexDirection: 'column', alignItems: 'center',
+              width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', alignItems: 'center',
               pointerEvents: 'auto'
             }}>
               {/* Handwritten output area */}
-              <div style={{ width: '100%', height: 120, position: 'relative', marginBottom: 16 }}>
+              <div style={{ width: '100%', height: 80, position: 'relative', marginBottom: 24 }}>
                 {composedText ? (
                   <HandwrittenLetter
                     animateKey={composeKey}
                     text={composedText}
-                    fontUrl="/fonts/ZenKurenaido-Regular.ttf"
-                    fontSize={32} 
-                    lineHeight={48}
+                    // 🚨 美しい明朝体と縮小されたフォントサイズ
+                    fontUrl="/fonts/ShipporiMincho-Regular.ttf"
+                    fontSize={20} 
+                    lineHeight={32}
                     letterSpacing={1.2}
                     className="handwritten-svg"
-                    strokeColor="rgba(236,246,255,0.96)"
-                    glowColor="rgba(143,216,255,0.22)"
-                    strokeWidth={2.1}
+                    strokeColor="rgba(236,246,255,0.8)"
+                    glowColor="rgba(143,216,255,0.15)"
+                    strokeWidth={1.5}
                     onStrokeImpulse={(payload) => {
                       audio.triggerFrictionImpulse({ intensity: payload.intensity, durationMs: payload.durationMs, color: 0.84 })
                       triggerResonance(Math.max(0.16, payload.intensity))
@@ -777,24 +773,25 @@ export function FathomApp() {
                     flex: 1,
                     background: 'transparent',
                     border: 'none',
-                    borderBottom: '1px solid rgba(255,255,255,0.2)',
+                    borderBottom: '1px solid rgba(255,255,255,0.15)',
                     color: 'rgba(255,255,255,0.8)',
                     fontFamily: 'sans-serif',
-                    fontSize: '14px',
+                    fontSize: '13px',
                     padding: '8px 0',
                     outline: 'none',
                     resize: 'none',
-                    height: '40px',
-                    lineHeight: '24px'
+                    height: '36px',
+                    lineHeight: '24px',
+                    letterSpacing: '0.05em'
                   }}
                 />
                 <button
                   onClick={() => void handleSendLetter()}
                   disabled={!canSend || status !== 'subscribed'}
                   style={{
-                    background: 'none', border: 'none', color: canSend ? '#8fd8ff' : 'rgba(255,255,255,0.3)',
-                    cursor: canSend ? 'pointer' : 'default', padding: '8px 0', fontSize: 12, letterSpacing: '0.1em',
-                    fontFamily: 'monospace'
+                    ...hudBtnStyle,
+                    color: canSend ? '#8fd8ff' : 'rgba(255,255,255,0.3)',
+                    borderColor: canSend ? 'rgba(143,216,255,0.4)' : 'rgba(255,255,255,0.15)',
                   }}
                 >
                   [ send ]
@@ -802,10 +799,10 @@ export function FathomApp() {
               </div>
 
               {/* Audio Controls */}
-              <div style={{ display: 'flex', gap: 16, marginTop: 24, opacity: 0.4 }}>
-                <button className="hud-btn" onClick={handleResumeAudio}>resume</button>
-                <button className="hud-btn" onClick={() => void audio.suspend()}>suspend</button>
-                <button className="hud-btn" onClick={() => void audio.stop()}>stop</button>
+              <div style={{ display: 'flex', gap: 16, marginTop: 32 }}>
+                <button style={hudBtnStyle} onClick={handleResumeAudio}>resume</button>
+                <button style={hudBtnStyle} onClick={() => void audio.suspend()}>suspend</button>
+                <button style={hudBtnStyle} onClick={() => void audio.stop()}>stop</button>
               </div>
             </div>
           </>
