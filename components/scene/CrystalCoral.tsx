@@ -28,48 +28,50 @@ export function CrystalCoral({
   const flashEnergy = useRef(0)
 
   useFrame((state, delta) => {
+    // 共鳴の検知
     if (resonancePulse > prevPulse.current) {
       flashEnergy.current = 1.0
       prevPulse.current = resonancePulse
     }
-    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.4)
+    // 余韻はゆっくりと消える（ロングディレイ）
+    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.5)
 
     const time = state.clock.elapsedTime
 
-    // 1. 内なるコア：常に激しく燃えるプラズマ
+    // 1. 内なるコア：白飛びしない「深い蒼炎」
     if (innerMatRef.current) {
-      // プラズマの発光は常に限界突破させておく（重い外殻を貫通させるため）
-      const baseGlow = 8.0 + Math.sin(time * 3.0) * 2.0 
-      const flashGlow = flashEnergy.current * 10.0 
+      // 🚨 修正：ベースの発光を抑え、「くすぶる熾火（おきび）」のように
+      const baseGlow = 2.0 + Math.sin(time * 2.0) * 0.5 
+      const flashGlow = flashEnergy.current * 6.0 
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
-      innerMatRef.current.distort = 0.6 + flashEnergy.current * 0.4
-      innerMatRef.current.speed = 8.0 + flashEnergy.current * 6.0
+      innerMatRef.current.distort = 0.4 + flashEnergy.current * 0.4
+      innerMatRef.current.speed = 5.0 + flashEnergy.current * 5.0
     }
 
-    // 2. 外殻：深淵の重厚な液体レンズ
+    // 2. 外殻：重厚な黒曜石（ダークグラス）
     if (outerMatRef.current) {
-      // 🚨 黄金比その1：色は「極めて深い蒼黒（深海の闇）」
-      const baseAtten = new THREE.Color('#020816') 
-      const flashAtten = new THREE.Color('#a8dcff') // 共鳴時は透き通る蒼へ
-      outerMatRef.current.attenuationColor.lerpColors(baseAtten, flashAtten, flashEnergy.current)
+      // 🚨 修正：ガラスそのものの色を「透明」から「深い蒼黒」へシフト
+      const baseColor = new THREE.Color('#0a1322')
+      const flashColor = new THREE.Color('#5ba8ff') // 共鳴時は明るい青へ
+      outerMatRef.current.color.lerpColors(baseColor, flashColor, flashEnergy.current)
 
-      // 🚨 黄金比その2：光の透過距離を「動的」に変化させる
-      const baseDistance = 0.85 // 平時は少し光が進むと真っ黒に吸収される（重厚感）
-      const flashDistance = 4.0 // 共鳴時は奥まで完全に光が通る（解放）
+      // 🚨 修正：光の透過距離（これによって奥の蒼炎が「うっすら」と透ける）
+      const baseDistance = 1.2 
+      const flashDistance = 4.0 // 共鳴時は光が奥まで通る
       outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(
         outerMatRef.current.attenuationDistance || baseDistance,
         baseDistance + (flashDistance - baseDistance) * flashEnergy.current,
-        delta * 4 // 開放は素早く、戻るのはflashEnergyの0.4のスピードに依存する
+        delta * 4
       )
 
       const baseDistortion = 0.5 + (windSpeed * 0.04)
       outerMatRef.current.distortion = THREE.MathUtils.lerp(
         outerMatRef.current.distortion,
-        baseDistortion + flashEnergy.current * 1.5,
+        baseDistortion + flashEnergy.current * 1.0,
         delta * 3
       )
-      outerMatRef.current.temporalDistortion = 0.3 + flashEnergy.current * 1.5
+      outerMatRef.current.temporalDistortion = 0.2 + flashEnergy.current * 1.5
     }
 
     // 3. シルエット自体の「1/f 流体うねり」
@@ -84,8 +86,8 @@ export function CrystalCoral({
       const baseScale = 0.85
       
       const flashExpand = flashEnergy.current * 0.12
-      const flashVibrateX = Math.sin(time * 20) * flashEnergy.current * 0.03
-      const flashVibrateY = Math.cos(time * 23) * flashEnergy.current * 0.03
+      const flashVibrateX = Math.sin(time * 20) * flashEnergy.current * 0.02
+      const flashVibrateY = Math.cos(time * 23) * flashEnergy.current * 0.02
 
       const targetX = baseScale * wobbleX + flashExpand + flashVibrateX
       const targetY = baseScale * wobbleY + flashExpand + flashVibrateY
@@ -97,39 +99,41 @@ export function CrystalCoral({
 
   return (
     <group ref={groupRef} scale={0.85} position={[0, -0.2, 0]}>
-      <ambientLight intensity={0.2} />
-      <directionalLight position={[5, 5, 2]} intensity={1.5} color="#8fd8ff" />
+      {/* 🚨 修正：環境光を抑え、白っぽく浮くのを防ぐ */}
+      <ambientLight intensity={0.1} />
+      <directionalLight position={[5, 5, 2]} intensity={1.0} color="#8fd8ff" />
       <Environment preset="night" />
 
-      {/* 内なるコア：常に激しく燃えるプラズマ */}
+      {/* 内なるコア：圧縮された蒼炎 */}
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-        <Sphere args={[0.35, 64, 64]}> 
+        <Sphere args={[0.3, 64, 64]}> 
           <MeshDistortMaterial
             ref={innerMatRef}
-            color="#ffffff"
-            emissive="#0044ff" // 深く、暴力的な青
-            emissiveIntensity={8.0}
+            color="#000000" // 🚨 修正：白飛びを防ぐためベースは黒に
+            emissive="#0044ff" // 深く純粋な青
+            emissiveIntensity={2.0}
             toneMapped={false}
-            distort={0.6} 
-            speed={8}     
+            distort={0.4} 
+            speed={5}     
           />
         </Sphere>
       </Float>
 
-      {/* 外殻：重厚な深海レンズ */}
+      {/* 外殻：重厚な黒曜の液体レンズ */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={2.2}             // 🚨 重厚感を出すために厚みを復活
-          roughness={0.03}            // 艶やかで冷たい質感
+          thickness={2.5}             // 重厚な厚み
+          roughness={0.03}            // 鋭い艶
           transmission={1}            
-          ior={1.42}                  // 🚨 屈折率を少し上げ、外周を暗く歪ませる
+          ior={1.42}                  
           chromaticAberration={0.05}  
           distortion={0.5}            
-          temporalDistortion={0.3}    
-          color="#ffffff"             
-          envMapIntensity={2.0}
-          // attenuationColor と attenuationDistance は useFrame で動的に制御
+          temporalDistortion={0.2}    
+          color="#0a1322"             // 🚨 修正：ベースを暗い黒曜石の色に
+          attenuationColor="#020612"  // 光が通るとさらに深い闇へ
+          attenuationDistance={1.2}   
+          envMapIntensity={1.0}       // 🚨 修正：環境光の反射を抑えて落ち着かせる
         />
       </Sphere>
     </group>
