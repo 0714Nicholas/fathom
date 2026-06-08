@@ -58,7 +58,7 @@ const hudStyles = `
 
   /* スマホ用（画面幅768px以下）のレイアウト調整 */
   @media (max-width: 768px) {
-    .fathom-logo { font-size: 15px; top: 16px; }
+    .fathom-logo { font-size: 14px; top: 16px; }
     .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
@@ -426,6 +426,7 @@ export function FathomApp() {
     <main className="scene-root" style={{ background: '#02050a' }}>
       <style>{hudStyles}</style>
 
+      {/* 🚨 ここに修正の集大成：気温の引継ぎと、停止時の逆転雪のための isSuspended を渡す */}
       <DeepSeaCanvas
         progress={progress}
         windSpeed={windSpeed}
@@ -437,11 +438,11 @@ export function FathomApp() {
         heatmapPulse={latestHeatmapPulse}
         descent={descent}
         temp={data?.temp ?? undefined}
+        isSuspended={!audio.running}
       />
 
       <div className="scene-vignette" />
 
-      {/* トップロゴ */}
       <div className="fathom-logo" style={{ opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity) }}>
         F A T H O M
       </div>
@@ -461,10 +462,8 @@ export function FathomApp() {
           </div>
         ) : null}
 
-        {/* HUD UI */}
         {hasDescended && settled ? (
           <>
-            {/* 左上 [SURFACE] */}
             <div className={`hud-top-left ${visibilityClass(settled, 1)}`}>
               <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ SURFACE ]</div>
               <div style={{ marginBottom: 4 }}>Origin: {data?.city ?? 'Unknown'}</div>
@@ -472,7 +471,6 @@ export function FathomApp() {
               <div>Surface Temp: {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}</div>
             </div>
 
-            {/* 左下 [ABYSS] */}
             <div className={`hud-bottom-left ${visibilityClass(settled, 2)}`}>
               <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ ABYSS ]</div>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
@@ -482,7 +480,6 @@ export function FathomApp() {
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase' }}>save as memory</button>
             </div>
 
-            {/* 右上 [RESONANCE] */}
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
               <LetterInbox
                 status={status} liveLetters={liveLetters} archive={archive} archiveLoading={archiveLoading} activeLetter={activeLetter} presenceCount={presenceCount} selfId={selfId}
@@ -494,7 +491,6 @@ export function FathomApp() {
               />
             </div>
 
-            {/* 下辺中央 [ACTION] & [COMPOSE] */}
             <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
               <div style={{ width: '100%', height: 48, position: 'relative', marginBottom: 24 }}>
                 {composedText ? (
@@ -508,7 +504,6 @@ export function FathomApp() {
                 ) : null}
               </div>
 
-              {/* Input Area */}
               <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
                 <textarea
                   value={draft}
@@ -521,22 +516,11 @@ export function FathomApp() {
                 </button>
               </div>
 
-              {/* スマートな1ボタントグル (Suspend/Resume) */}
               <div style={{ display: 'flex', gap: 24, marginTop: 24 }}>
                 {!audio.running ? (
-                  <button 
-                    className="hud-btn" 
-                    onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}
-                  >
-                    [ resume ]
-                  </button>
+                  <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ resume ]</button>
                 ) : (
-                  <button 
-                    className="hud-btn" 
-                    onClick={() => void audio.suspend()}
-                  >
-                    [ suspend ]
-                  </button>
+                  <button className="hud-btn" onClick={() => void audio.suspend()}>[ suspend ]</button>
                 )}
               </div>
             </div>

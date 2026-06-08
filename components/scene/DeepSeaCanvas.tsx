@@ -5,10 +5,10 @@ import { CrystalCoral } from './CrystalCoral'
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 
-// 🚨 修正：progress（水深）を受け取るように変更
-function MarineSnow({ count = 1200, windSpeed = 0, progress = 0 }) {
+// 🚨 修正：isSuspended（一時停止中かどうか）を受け取る
+function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = false }) {
   const pointsRef = useRef<THREE.Points>(null)
-  const materialRef = useRef<THREE.ShaderMaterial>(null) // 🚨 時間停止バグ修正用
+  const materialRef = useRef<THREE.ShaderMaterial>(null)
   
   const [positions, scales, speeds] = useMemo(() => {
     const pos = new Float32Array(count * 3)
@@ -30,15 +30,23 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0 }) {
     uTime: { value: 0 },
     uWind: { value: 0 },
     uDpr: { value: dpr },
-    uProgress: { value: 0 } // 🚨 水深データをシェーダーに渡す
+    uProgress: { value: 0 },
+    uSuspended: { value: 0 } // 🚨 新規：進行方向をブレンドするための変数
   }), [dpr])
 
-  useFrame((state) => {
-    // 🚨 修正：ここで毎フレーム直接数値を流し込むことで、バグなくアニメーションする
+  useFrame((state, delta) => {
     if (materialRef.current) {
       materialRef.current.uniforms.uTime.value = state.clock.elapsedTime
       materialRef.current.uniforms.uWind.value = windSpeed
       materialRef.current.uniforms.uProgress.value = progress
+
+      // 🚨 スムーズに進行方向と速度を切り替える（急にガクッと向きを変えないため）
+      const targetSuspended = isSuspended ? 1.0 : 0.0
+      materialRef.current.uniforms.uSuspended.value = THREE.MathUtils.lerp(
+        materialRef.current.uniforms.uSuspended.value,
+        targetSuspended,
+        delta * 2.0
+      )
     }
   })
 
@@ -62,40 +70,54 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0 }) {
           uniform float uWind;
           uniform float uDpr;
           uniform float uProgress;
+          uniform float uSuspended;
           varying float vAlpha;
+          varying float vY; // 🚨 新規：Y座標をフラグメントシェーダーに渡す
+
           void main() {
             vec3 pos = position;
             
-            // 🚨 水深（uProgress）が深いほど、全体の動きが重く、遅くなる（最大80%減速）
             float depthSpeedMult = 1.0 - (uProgress * 0.8);
             
-            pos.y += uTime * aSpeed * 0.8 * depthSpeedMult;
+            // 🚨 潜水時は上(0.8)へ、Suspend(停止)時は本来の雪のようにゆっくり下(-0.3)へ
+            float currentSpeed = mix(0.8, -0.3, uSuspended);
+            
+            pos.y += uTime * aSpeed * currentSpeed * depthSpeedMult;
             pos.x += sin(uTime * aSpeed * 12.0 + pos.y * 3.0) * 0.15 * depthSpeedMult;
             pos.y += sin(uTime * aSpeed * 8.0 + pos.x * 2.0) * 0.1 * depthSpeedMult;
 
             pos.y = mod(pos.y + 10.0, 20.0) - 10.0;
             pos.x = mod(pos.x + 10.0, 20.0) - 10.0;
             
+            vY = pos.y; // 🚨 Y座標を保存
+            
             vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
             gl_Position = projectionMatrix * mvPosition;
             
             gl_PointSize = max((150.0 * aScale * uDpr) / -mvPosition.z, 3.0);
             
-            // 深海に潜るほど、明滅がゆっくりになる
             vAlpha = 0.5 + 0.5 * sin(uTime * aSpeed * 15.0 * depthSpeedMult + pos.x * 10.0);
           }
         `}
         fragmentShader={`
           varying float vAlpha;
+          varying float vY; // 🚨 新規
           uniform float uProgress;
+          
           void main() {
             float dist = length(gl_PointCoord - vec2(0.5));
             if (dist > 0.5) discard;
             float alpha = smoothstep(0.5, 0.2, dist) * vAlpha;
             
-            // 🚨 水深が深いほど、パーティクルの透明度が下がり「暗闇に溶ける」
             float depthDim = 1.0 - (uProgress * 0.7);
-            gl_FragColor = vec4(0.8, 0.95, 1.0, alpha * depthDim);
+            
+            // 🚨 新規：上下に消えていくグラデーション（Yが±10に近づくと透明になる）
+            // これにより、上に飛び去る時にプツッと消えず、暗闇にフワッと溶けます
+            float yFadeIn = smoothstep(-10.0, -6.0, vY);
+            float yFadeOut = 1.0 - smoothstep(6.0, 10.0, vY);
+            float yFade = yFadeIn * yFadeOut;
+
+            gl_FragColor = vec4(0.8, 0.95, 1.0, alpha * depthDim * yFade);
           }
         `}
       />
@@ -103,7 +125,6 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0 }) {
   )
 }
 
-// 🚨 修正：temp（気温）を受け取れるようにPropsを追加
 export interface DeepSeaCanvasProps {
   progress: number
   windSpeed: number
@@ -115,6 +136,7 @@ export interface DeepSeaCanvasProps {
   heatmapPulse: any
   descent: number
   temp?: number
+  isSuspended?: boolean // 🚨 追加
 }
 
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
@@ -124,7 +146,12 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
         <color attach="background" args={['#030816']} />
         <fog attach="fog" args={['#030816', 3, 15]} />
         
-        <MarineSnow windSpeed={props.windSpeed} count={1200} progress={props.progress} />
+        <MarineSnow 
+          windSpeed={props.windSpeed} 
+          count={1200} 
+          progress={props.progress} 
+          isSuspended={props.isSuspended} 
+        />
         <CrystalCoral {...props} />
       </Canvas>
     </div>

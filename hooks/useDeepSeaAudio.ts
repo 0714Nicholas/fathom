@@ -30,14 +30,15 @@ export type DeepSeaAudioController = {
   triggerFrictionImpulse: (options?: FrictionImpulseOptions) => void
 }
 
-// 🚨 拡張：深海のエコー（反響）を作るための delayNode を追加
 type AudioGraphRefs = {
   ctx: AudioContext | null
   node: AudioWorkletNode | null
   lowpass: BiquadFilterNode | null
   compressor: DynamicsCompressorNode | null
   master: GainNode | null
-  delayNode: DelayNode | null 
+  delayNode: DelayNode | null
+  surfaceSource: AudioBufferSourceNode | null
+  surfaceGain: GainNode | null
 }
 
 function clamp(v: number, min: number, max: number) {
@@ -54,12 +55,7 @@ function expInterpolate(from: number, to: number, t: number) {
   return Math.exp(Math.log(safeFrom) + (Math.log(safeTo) - Math.log(safeFrom)) * t)
 }
 
-function mapToCutoff(
-  progress: number,
-  descent: number,
-  shallowCutoff: number,
-  deepCutoff: number
-) {
+function mapToCutoff(progress: number, descent: number, shallowCutoff: number, deepCutoff: number) {
   const surface = Math.max(shallowCutoff * 2.4, 5400)
   const startCutoff = expInterpolate(surface, shallowCutoff, clamp(descent, 0, 1))
   return expInterpolate(startCutoff, deepCutoff, clamp(progress, 0, 1))
@@ -92,13 +88,7 @@ function mapWeatherToLfoDepth(windSpeed: number, rainAmount: number, descent: nu
   return base * lerp(0.6, 1.0, clamp(descent, 0, 1))
 }
 
-function setKRateParam(
-  node: AudioWorkletNode | null,
-  name: string,
-  value: number,
-  now: number,
-  timeConstant = 0.25
-) {
+function setKRateParam(node: AudioWorkletNode | null, name: string, value: number, now: number, timeConstant = 0.25) {
   const param = node?.parameters.get(name)
   if (!param) return
   param.cancelScheduledValues(now)
@@ -116,15 +106,9 @@ export function useDeepSeaAudio({
   deepCutoff = 85,
 }: UseDeepSeaAudioOptions): DeepSeaAudioController {
   const graphRef = useRef<AudioGraphRefs>({
-    ctx: null,
-    node: null,
-    lowpass: null,
-    compressor: null,
-    master: null,
-    delayNode: null,
+    ctx: null, node: null, lowpass: null, compressor: null, master: null, delayNode: null, surfaceSource: null, surfaceGain: null,
   })
 
-  // 🚨 拡張：気泡とクジラの自律シンセサイザー用タイマー
   const timersRef = useRef<{ bubble: number; whale: number }>({ bubble: 0, whale: 0 })
 
   const cutoffRef = useRef<number>(shallowCutoff)
@@ -149,12 +133,7 @@ export function useDeepSeaAudio({
     await ctx.audioWorklet.addModule(workletUrl)
 
     const node = new AudioWorkletNode(ctx, 'deep-sea-noise-processor', {
-      numberOfInputs: 0,
-      numberOfOutputs: 1,
-      outputChannelCount: [2],
-      channelCount: 2,
-      channelCountMode: 'explicit',
-      channelInterpretation: 'speakers',
+      numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers',
     })
 
     const lowpass = ctx.createBiquadFilter()
@@ -172,19 +151,48 @@ export function useDeepSeaAudio({
     const master = ctx.createGain()
     master.gain.value = 0.0001
 
-    // 🚨 拡張：深海の広大さを作る「ディレイ・ネットワーク」
     const delayNode = ctx.createDelay(5.0)
-    delayNode.delayTime.value = 1.2 // 1.2秒の深いエコー
+    delayNode.delayTime.value = 1.2 
     const delayFeedback = ctx.createGain()
-    delayFeedback.gain.value = 0.45 // エコーの持続時間
+    delayFeedback.gain.value = 0.45 
 
-    // ディレイの結線
     delayNode.connect(delayFeedback)
     delayFeedback.connect(delayNode)
-    // エコーも lowpass を通るようにする（深く潜るとエコーも重低音になる）
     delayNode.connect(lowpass)
 
-    // メインの結線
+    const bufferSize = ctx.sampleRate * 2
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+    const output = noiseBuffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1 
+    }
+    const surfaceSource = ctx.createBufferSource()
+    surfaceSource.buffer = noiseBuffer
+    surfaceSource.loop = true
+
+    const surfaceFilter = ctx.createBiquadFilter()
+    surfaceFilter.type = 'bandpass'
+    surfaceFilter.frequency.value = 1200 
+    surfaceFilter.Q.value = 0.5
+
+    const surfaceGain = ctx.createGain()
+    surfaceGain.gain.value = 0.0
+
+    const waveLfo = ctx.createOscillator()
+    waveLfo.type = 'sine'
+    waveLfo.frequency.value = 0.15 
+    const waveLfoGain = ctx.createGain()
+    waveLfoGain.gain.value = 800 
+    waveLfo.connect(waveLfoGain)
+    waveLfoGain.connect(surfaceFilter.frequency)
+
+    surfaceSource.connect(surfaceFilter)
+    surfaceFilter.connect(surfaceGain)
+    surfaceGain.connect(master)
+
+    surfaceSource.start()
+    waveLfo.start()
+
     node.connect(lowpass)
     lowpass.connect(compressor)
     compressor.connect(master)
@@ -198,13 +206,11 @@ export function useDeepSeaAudio({
       }
     }
 
-    graphRef.current = { ctx, node, lowpass, compressor, master, delayNode }
+    graphRef.current = { ctx, node, lowpass, compressor, master, delayNode, surfaceSource, surfaceGain }
     cutoffRef.current = lowpass.frequency.value
     setReady(true)
     return graphRef.current
   }, [shallowCutoff, workletUrl])
-
-  // --- 🐬 深海の自律オーディオ生成関数 ---
 
   const playBubble = useCallback(() => {
     const { ctx, lowpass, delayNode } = graphRef.current
@@ -215,23 +221,22 @@ export function useDeepSeaAudio({
     osc.type = 'sine'
     
     const t = ctx.currentTime
-    const startFreq = 400 + Math.random() * 400
+    const startFreq = 800 + Math.random() * 400 
+    const endFreq = startFreq * 0.4 
     
-    // ピッチドロップで「ポコッ」という気泡感を出す
     osc.frequency.setValueAtTime(startFreq, t)
-    osc.frequency.exponentialRampToValueAtTime(100, t + 0.15)
+    osc.frequency.exponentialRampToValueAtTime(endFreq, t + 0.1)
 
-    // 音量エンベロープ
     gain.gain.setValueAtTime(0, t)
-    gain.gain.linearRampToValueAtTime(0.15, t + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2)
+    gain.gain.linearRampToValueAtTime(0.2, t + 0.01)
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1)
 
     osc.connect(gain)
-    gain.connect(lowpass) // フィルターを通す
-    gain.connect(delayNode) // エコー空間へ送る
+    gain.connect(lowpass) 
+    gain.connect(delayNode) 
 
     osc.start(t)
-    osc.stop(t + 0.3)
+    osc.stop(t + 0.15)
   }, [])
 
   const playWhale = useCallback(() => {
@@ -244,13 +249,11 @@ export function useDeepSeaAudio({
     
     const t = ctx.currentTime
     const duration = 3.0 + Math.random() * 3.0
-    const baseFreq = 90 + Math.random() * 60 // 90-150Hzの深い音
+    const baseFreq = 90 + Math.random() * 60 
     
-    // 生き物のようにゆっくりピッチが揺れる
     osc.frequency.setValueAtTime(baseFreq, t)
     osc.frequency.linearRampToValueAtTime(baseFreq + (Math.random() * 30 - 15), t + duration)
 
-    // ゆっくり現れて、ゆっくり消える
     gain.gain.setValueAtTime(0, t)
     gain.gain.linearRampToValueAtTime(0.12, t + duration * 0.4)
     gain.gain.exponentialRampToValueAtTime(0.001, t + duration)
@@ -265,7 +268,7 @@ export function useDeepSeaAudio({
 
   const scheduleEvents = useCallback(() => {
     const scheduleNextBubble = () => {
-      const nextTime = Math.random() * 8000 + 4000 // 4〜12秒ごと
+      const nextTime = Math.random() * 8000 + 4000 
       timersRef.current.bubble = window.setTimeout(() => {
         playBubble()
         scheduleNextBubble()
@@ -273,7 +276,7 @@ export function useDeepSeaAudio({
     }
 
     const scheduleNextWhale = () => {
-      const nextTime = Math.random() * 25000 + 15000 // 15〜40秒ごと
+      const nextTime = Math.random() * 25000 + 15000 
       timersRef.current.whale = window.setTimeout(() => {
         playWhale()
         scheduleNextWhale()
@@ -289,10 +292,8 @@ export function useDeepSeaAudio({
     window.clearTimeout(timersRef.current.whale)
   }, [])
 
-  // ----------------------------------------
-
   const applyDynamicParams = useCallback(() => {
-    const { ctx, node } = graphRef.current
+    const { ctx, node, surfaceGain } = graphRef.current
     if (!ctx || !node) return
 
     const now = ctx.currentTime
@@ -312,6 +313,15 @@ export function useDeepSeaAudio({
     setKRateParam(node, 'lfoDepth', lfoDepth, now, 0.45)
     setKRateParam(node, 'stereoWidth', stereoWidth, now, 0.6)
     setKRateParam(node, 'drift', drift, now, 0.6)
+
+    // 水深35%で完全に波の音が消えるように調整
+    if (surfaceGain) {
+      const surfaceDepthFade = Math.max(0, 1.0 - (progress / 0.35))
+      const windVolume = clamp(windSpeed / 15, 0.2, 1.0)
+      const surfaceTargetGain = 0.12 * surfaceDepthFade * windVolume * clamp(descent, 0, 1)
+      surfaceGain.gain.setTargetAtTime(surfaceTargetGain, now, 0.5)
+    }
+
   }, [descent, progress, rainAmount, windSpeed])
 
   const applyCutoff = useCallback(() => {
@@ -347,7 +357,7 @@ export function useDeepSeaAudio({
 
     applyDynamicParams()
     applyCutoff()
-    scheduleEvents() // 🚨 イベント開始
+    scheduleEvents()
     setRunning(true)
   }, [applyCutoff, applyDynamicParams, createGraph, scheduleEvents])
 
@@ -364,7 +374,7 @@ export function useDeepSeaAudio({
 
     applyDynamicParams()
     applyCutoff()
-    scheduleEvents() // 🚨 イベント再開
+    scheduleEvents() 
     setRunning(true)
   }, [applyCutoff, applyDynamicParams, createGraph, scheduleEvents])
 
@@ -376,7 +386,7 @@ export function useDeepSeaAudio({
     master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), now)
     master.gain.exponentialRampToValueAtTime(0.0001, now + 0.45)
 
-    clearEvents() // 🚨 イベント停止
+    clearEvents() 
 
     window.setTimeout(async () => {
       if (ctx.state === 'running') await ctx.suspend()
@@ -385,7 +395,7 @@ export function useDeepSeaAudio({
   }, [clearEvents])
 
   const stop = useCallback(async () => {
-    const { ctx, node, lowpass, compressor, master, delayNode } = graphRef.current
+    const { ctx, node, lowpass, compressor, master, delayNode, surfaceSource } = graphRef.current
     if (!ctx) return
 
     const now = ctx.currentTime
@@ -395,11 +405,13 @@ export function useDeepSeaAudio({
       master.gain.exponentialRampToValueAtTime(0.0001, now + 0.35)
     }
 
-    clearEvents() // 🚨 イベント停止
+    clearEvents() 
 
     await new Promise((r) => setTimeout(r, 400))
 
     try {
+      surfaceSource?.stop()
+      surfaceSource?.disconnect()
       node?.disconnect()
       lowpass?.disconnect()
       compressor?.disconnect()
@@ -407,14 +419,7 @@ export function useDeepSeaAudio({
       delayNode?.disconnect()
       await ctx.close()
     } finally {
-      graphRef.current = {
-        ctx: null,
-        node: null,
-        lowpass: null,
-        compressor: null,
-        master: null,
-        delayNode: null,
-      }
+      graphRef.current = { ctx: null, node: null, lowpass: null, compressor: null, master: null, delayNode: null, surfaceSource: null, surfaceGain: null }
       cutoffRef.current = shallowCutoff
       setReady(false)
       setRunning(false)
@@ -425,7 +430,6 @@ export function useDeepSeaAudio({
   const triggerFrictionImpulse = useCallback((options?: FrictionImpulseOptions) => {
     const { ctx, node, lowpass, delayNode } = graphRef.current
     
-    // 既存の Worklet へのインパルス送信
     if (node) {
       node.port.postMessage({
         type: 'friction',
@@ -435,7 +439,6 @@ export function useDeepSeaAudio({
       })
     }
 
-    // 🚨 拡張：ガラスの響き（タイピング音）を追加し、エコー空間へ放つ
     if (ctx && lowpass && delayNode && ctx.state === 'running') {
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
@@ -444,7 +447,7 @@ export function useDeepSeaAudio({
       const t = ctx.currentTime
       const color = options?.color ?? 0.82
       const intensity = options?.intensity ?? 0.42
-      const freq = 500 + (color * 1500) // 色値から周波数を決定
+      const freq = 500 + (color * 1500) 
 
       osc.frequency.setValueAtTime(freq + 400, t)
       osc.frequency.exponentialRampToValueAtTime(freq, t + 0.05)
@@ -454,8 +457,8 @@ export function useDeepSeaAudio({
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25)
 
       osc.connect(gain)
-      gain.connect(lowpass) // 直の音
-      gain.connect(delayNode) // 反響する音
+      gain.connect(lowpass)
+      gain.connect(delayNode) 
 
       osc.start(t)
       osc.stop(t + 0.3)
@@ -483,13 +486,6 @@ export function useDeepSeaAudio({
   }, [stop])
 
   return {
-    ready,
-    running,
-    meter,
-    start,
-    resume,
-    suspend,
-    stop,
-    triggerFrictionImpulse,
+    ready, running, meter, start, resume, suspend, stop, triggerFrictionImpulse,
   }
 }
