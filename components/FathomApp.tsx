@@ -19,7 +19,7 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
-// 🚨 HUD用の極限まで削ぎ落としたスタイル
+// 🚨 スマホ対応（レスポンシブ）のレイアウトを制御するCSSを追加
 const hudStyles = `
   .hud-btn {
     background: transparent;
@@ -41,6 +41,36 @@ const hudStyles = `
     color: rgba(255, 255, 255, 0.1);
     cursor: default;
     text-shadow: none;
+  }
+
+  /* デスクトップ基準の配置 */
+  .fathom-logo { position: fixed; top: 32px; left: 0; width: 100%; text-align: center; pointer-events: none; z-index: 100; transition: opacity 2s linear; }
+  .hud-top-left { position: absolute; top: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
+  .hud-bottom-left { position: absolute; bottom: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
+  .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; }
+  .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
+  
+  .hud-textarea { flex: 1; background: transparent; border: none; color: rgba(255,255,255,0.7); font-family: sans-serif; font-size: 11px; padding: 8px 0; outline: none; resize: none; height: 32px; line-height: 16px; letter-spacing: 0.05em; }
+
+  /* 🚨 スマホ用（画面幅768px以下）のレイアウト調整 */
+  @media (max-width: 768px) {
+    .fathom-logo { top: 16px; }
+    
+    /* 左右のUIがぶつからないように縮小＆配置変更 */
+    .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
+    .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
+    
+    /* 下の入力欄と重ならないように上に逃す */
+    .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
+    
+    .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
+    
+    /* 🚨 iOSの勝手なズームを防ぐため、スマホでは入力欄を16pxにする */
+    .hud-textarea { font-size: 16px; height: 40px; }
+    .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
+    
+    /* 入力ステージ（最初の画面）の横幅もスマホに合わせる */
+    .descend-stage input { width: 85vw !important; max-width: 320px; }
   }
 `
 
@@ -291,7 +321,6 @@ export function FathomApp() {
 
   const audio = useDeepSeaAudio({ enabled: true, progress, windSpeed, rainAmount, descent })
   
-  // 🚨 修正：オーディオ停止時に水深が0に戻らないように累積経過時間を記録
   const driftElapsedRef = useRef(0)
 
   useEffect(() => {
@@ -302,7 +331,6 @@ export function FathomApp() {
       return 
     }
 
-    // 🚨 修正：オーディオ停止時は計算をストップし、現在の水深を保持
     if (!audio.running) {
       return
     }
@@ -417,7 +445,7 @@ export function FathomApp() {
       <div className="scene-vignette" />
 
       {/* トップロゴ */}
-      <div style={{ position: 'fixed', top: 32, left: 0, width: '100%', textAlign: 'center', pointerEvents: 'none', zIndex: 100, opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity), transition: 'opacity 2s linear' }}>
+      <div className="fathom-logo" style={{ opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity) }}>
         <div style={{ letterSpacing: '0.6em', fontSize: '12px', fontWeight: 300, color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}>F A T H O M</div>
       </div>
 
@@ -440,25 +468,25 @@ export function FathomApp() {
         {hasDescended && settled ? (
           <>
             {/* 左上 [SURFACE] */}
-            <div className={visibilityClass(settled, 1)} style={{ position: 'absolute', top: 40, left: 32, textAlign: 'left', fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.5)', pointerEvents: 'auto' }}>
-              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 9 }}>[ SURFACE ]</div>
+            <div className={`hud-top-left ${visibilityClass(settled, 1)}`}>
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ SURFACE ]</div>
               <div style={{ marginBottom: 4 }}>Origin: {data?.city ?? 'Unknown'}</div>
               <div style={{ marginBottom: 4 }}>Surface Noise: {windSpeed.toFixed(1)} m/s</div>
               <div>Surface Temp: {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}</div>
             </div>
 
             {/* 左下 [ABYSS] */}
-            <div className={visibilityClass(settled, 2)} style={{ position: 'absolute', bottom: 40, left: 32, textAlign: 'left', fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.5)', pointerEvents: 'auto' }}>
-              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: 9 }}>[ ABYSS ]</div>
+            <div className={`hud-bottom-left ${visibilityClass(settled, 2)}`}>
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ ABYSS ]</div>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
               <div style={{ marginBottom: 12 }}>Pressure: {currentPressure} atm</div>
-              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: 9 }}>[ COORDINATE ]</div>
+              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
               <div style={{ marginBottom: 12 }}>{selfId.replace(/-/g, ' ')}</div>
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase' }}>save as memory</button>
             </div>
 
             {/* 右上 [RESONANCE] */}
-            <div className={visibilityClass(settled, 3)} style={{ position: 'absolute', top: 40, right: 32, pointerEvents: 'auto' }}>
+            <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
               <LetterInbox
                 status={status} liveLetters={liveLetters} archive={archive} archiveLoading={archiveLoading} activeLetter={activeLetter} presenceCount={presenceCount} selfId={selfId}
                 onSelectLetter={(letter: LetterPayload) => { manualPlay(letter); triggerResonance(letter.source === 'archive' ? 0.18 : 0.24) }}
@@ -470,8 +498,7 @@ export function FathomApp() {
             </div>
 
             {/* 下辺中央 [ACTION] & [COMPOSE] */}
-            <div className={visibilityClass(settled, 4)} style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '460px', display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
-              
+            <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
               <div style={{ width: '100%', height: 48, position: 'relative', marginBottom: 24 }}>
                 {composedText ? (
                   <HandwrittenLetter
@@ -485,19 +512,19 @@ export function FathomApp() {
               </div>
 
               {/* Input Area */}
-              <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0 24px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder="write a quiet letter..."
-                  style={{ flex: 1, background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.7)', fontFamily: 'sans-serif', fontSize: '11px', padding: '8px 0', outline: 'none', resize: 'none', height: '32px', lineHeight: '16px', letterSpacing: '0.05em' }}
+                  className="hud-textarea"
                 />
                 <button className="hud-btn" onClick={() => void handleSendLetter()} disabled={!canSend || status !== 'subscribed'}>
                   [ send ]
                 </button>
               </div>
 
-              {/* 🚨 スマートな1ボタントグル (Suspend/Resume) */}
+              {/* スマートな1ボタントグル (Suspend/Resume) */}
               <div style={{ display: 'flex', gap: 24, marginTop: 24 }}>
                 {!audio.running ? (
                   <button 
