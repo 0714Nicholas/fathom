@@ -436,7 +436,7 @@ export function FathomApp() {
         identity={identity}
         heatmapPulse={latestHeatmapPulse}
         descent={descent}
-        temp={data?.temp}
+        temp={data?.temp ?? undefined}
       />
 
       <div className="scene-vignette" />
