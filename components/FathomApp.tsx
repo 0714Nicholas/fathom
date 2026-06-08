@@ -19,7 +19,6 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
-// 🚨 HUD用の極限まで削ぎ落としたスタイル
 const hudStyles = `
   .hud-btn {
     background: transparent;
@@ -44,116 +43,12 @@ const hudStyles = `
   }
 
   /* デスクトップ基準の配置 */
-  .fathom-logo { position: fixed; top: 32px; left: 0; width: 100%; text-align: center; pointer-events: none; z-index: 100; transition: opacity 2s linear; }
-  .hud-top-left { position: absolute; top: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
-  .hud-bottom-left { position: absolute; bottom: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
-  .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; }
-  .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
-  
-  .hud-textarea { flex: 1; background: transparent; border: none; color: rgba(255,255,255,0.7); font-family: sans-serif; font-size: 11px; padding: 8px 0; outline: none; resize: none; height: 32px; line-height: 16px; letter-spacing: 0.05em; }
-
-  /* 🚨 スマホ用（画面幅768px以下）のレイアウト調整 */
-  @media (max-width: 768px) {
-    /* 🚨 修正：ロゴをほんの少し大きく（12px -> 14px） */
-    .fathom-logo { font-size: 14px; top: 16px; }
-
-    /* 左右のUIがぶつからないように縮小＆配置変更 */
-    .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
-    .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
-    
-    /* 下の入力欄と重ならないように上に逃す */
-    .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
-    
-    .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
-    
-    /* 🚨 iOSの勝手なズームを防ぐため、スマホでは入力欄を16pxにする */
-    .hud-textarea { font-size: 16px; height: 40px; }
-    .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
-    
-    /* 🚨 修正：entranceステージの見切れ修正。スマホでは上部のパディングを大きくして日本語テキストを逃す */
-    .descend-stage { padding-top: 15vh; }
-    .descend-stage input { width: 85vw !important; max-width: 320px; }
+  .fathom-logo { 
+    position: fixed; top: 32px; left: 0; width: 100%; text-align: center; 
+    pointer-events: none; z-index: 100; transition: opacity 2s linear; 
+    letter-spacing: 0.6em; font-size: 13px; font-weight: 300; 
+    color: rgba(255,255,255,0.7); font-family: monospace; 
   }
-`
-
-function useSelfId(): string {
-  const [selfId] = useState(() => {
-    if (typeof window === 'undefined') return 'server'
-    const stored = window.localStorage.getItem('fathom:self-id')
-    if (stored && isValidFathomCoordinate(stored)) {
-      return stored
-    }
-    const nextCoordinate = generateFathomCoordinate()
-    window.localStorage.setItem('fathom:self-id', nextCoordinate)
-    return nextCoordinate
-  })
-  return selfId
-}
-
-function downloadCrystalMemory(coordinate: string, depth: number) {
-  const canvas = document.createElement('canvas')
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  const width = 1080
-  const height = 1920
-  canvas.width = width
-  canvas.height = height
-
-  const r1 = Math.floor(10 + (25 - 10) * (1 - depth))
-  const g1 = Math.floor(25 + (50 - 25) * (1 - depth))
-  const b1 = Math.floor(40 + (80 - 40) * (1FATHOMのロゴ、ほんのちょーーーっとだけ大きくしました！ EntranceStageの見切れは、スマホ表示時に結晶の上のパディングを大きく取ることで、日本語テキストが被らないように修正しました。 マリンスノーは、ただ上昇するだけでなく、海中の有機物のように複雑にゆらゆらと漂わせるリアルな動きに変更しました。
-
-### FathomApp.tsx (ロゴのサイズ調整とEntranceStageのレイアウト修正)
-
-```tsx
-'use client'
-
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { HandwrittenLetter } from '@/components/letters/HandwrittenLetter'
-import { LetterInbox } from '@/components/letters/LetterInbox'
-import { DeepSeaCanvas } from '@/components/scene/DeepSeaCanvas'
-import { useDeepSeaAudio } from '@/hooks/useDeepSeaAudio'
-import {
-  useRealtimeLetters,
-  type LetterPayload,
-  type ResonancePulsePayload,
-} from '@/hooks/useRealtimeLetters'
-import { useWeather } from '@/hooks/useWeather'
-import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
-import { useFathomDescent } from '@/hooks/useFathomDescent'
-import { generateFathomCoordinate, isValidFathomCoordinate, formatCoordinateForSystem } from '@/lib/identity/coordinates'
-
-const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
-
-export type FathomMode = 'focus' | 'meditate' | 'sleep'
-
-// HUD用の極限まで削ぎ落としたスタイル
-const hudStyles = `
-  .hud-btn {
-    background: transparent;
-    border: none;
-    color: rgba(255, 255, 255, 0.4);
-    font-family: monospace;
-    font-size: 10px;
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-    cursor: pointer;
-    padding: 4px 8px;
-    transition: all 0.3s ease;
-  }
-  .hud-btn:hover {
-    color: rgba(143, 216, 255, 1);
-    text-shadow: 0 0 8px rgba(143, 216, 255, 0.5);
-  }
-  .hud-btn:disabled {
-    color: rgba(255, 255, 255, 0.1);
-    cursor: default;
-    text-shadow: none;
-  }
-
-  /* デスクトップ基準の配置 */
-  .fathom-logo { position: fixed; top: 32px; left: 0; width: 100%; text-align: center; pointer-events: none; z-index: 100; transition: opacity 2s linear; }
   .hud-top-left { position: absolute; top: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
   .hud-bottom-left { position: absolute; bottom: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
   .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; }
@@ -163,23 +58,15 @@ const hudStyles = `
 
   /* スマホ用（画面幅768px以下）のレイアウト調整 */
   @media (max-width: 768px) {
-    /* Logo size adjustment */
-    .fathom-logo { font-size: 14px; top: 16px; }
-
-    /* Left and right UI adjustment to prevent collision */
+    .fathom-logo { font-size: 15px; top: 16px; }
     .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
-    
-    /* Left bottom adjustment to prevent collision with input area */
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
-    
     .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
     
-    /* iOS input area zoom fix */
     .hud-textarea { font-size: 16px; height: 40px; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
     
-    /* EntranceStage layout adjustment */
     .descend-stage { padding-top: 15vh; }
     .descend-stage input { width: 85vw !important; max-width: 320px; }
   }
@@ -442,9 +329,7 @@ export function FathomApp() {
       return 
     }
 
-    if (!audio.running) {
-      return
-    }
+    if (!audio.running) return
 
     let lastTick = Date.now()
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
@@ -557,7 +442,7 @@ export function FathomApp() {
 
       {/* トップロゴ */}
       <div className="fathom-logo" style={{ opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity) }}>
-        <div style={{ letterSpacing: '0.6em', fontSize: '12px', fontWeight: 300, color: 'rgba(255,255,255,0.7)', fontFamily: 'monospace' }}>F A T H O M</div>
+        F A T H O M
       </div>
 
       {beaconMounted ? (
