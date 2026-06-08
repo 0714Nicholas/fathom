@@ -22,14 +22,13 @@ function MarineSnow({ count = 1200, windSpeed = 0 }) {
     return [pos, sca, spd]
   }, [count])
 
-  // 🚨 スマホの高精細ディスプレイ（Retina等）でも粒が消えないようにピクセル比を取得
   const { viewport } = useThree()
   const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio, 2) : 1
 
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
     uWind: { value: windSpeed },
-    uDpr: { value: dpr } // シェーダーにピクセル比を渡す
+    uDpr: { value: dpr }
   }), [windSpeed, dpr])
 
   useFrame((state) => {
@@ -69,10 +68,11 @@ function MarineSnow({ count = 1200, windSpeed = 0 }) {
             vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
             gl_Position = projectionMatrix * mvPosition;
             
-            // 🚨 ここでピクセル比(uDpr)を掛けることでスマホでも美しく表示される
-            gl_PointSize = (40.0 * aScale * uDpr) / -mvPosition.z;
+            // 🚨 修正：サイズのベース数値を40.0から「150.0」に大幅アップ。さらに最低サイズ(3.0)を保証
+            gl_PointSize = max((150.0 * aScale * uDpr) / -mvPosition.z, 3.0);
             
-            vAlpha = 0.2 + 0.8 * sin(uTime * aSpeed * 15.0 + pos.x * 10.0);
+            // 🚨 修正：明滅のベース透明度を上げ、ハッキリ見えるように
+            vAlpha = 0.5 + 0.5 * sin(uTime * aSpeed * 15.0 + pos.x * 10.0);
           }
         `}
         fragmentShader={`
@@ -80,8 +80,10 @@ function MarineSnow({ count = 1200, windSpeed = 0 }) {
           void main() {
             float dist = length(gl_PointCoord - vec2(0.5));
             if (dist > 0.5) discard;
-            float alpha = smoothstep(0.5, 0.1, dist) * vAlpha * 0.6;
-            gl_FragColor = vec4(0.6, 0.85, 1.0, alpha);
+            // 🚨 修正：減衰を弱め、中心がよりクッキリ発光するように
+            float alpha = smoothstep(0.5, 0.2, dist) * vAlpha;
+            // 🚨 修正：少し白っぽく（明るく）して目立たせる
+            gl_FragColor = vec4(0.8, 0.95, 1.0, alpha);
           }
         `}
       />
@@ -105,7 +107,6 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
       <Canvas camera={{ position: [0, 0, 4], fov: 45 }}>
-        {/* 🚨 完全な黒(#000)ではなく、深海らしい「重みのある深い蒼黒」を指定 */}
         <color attach="background" args={['#030816']} />
         <fog attach="fog" args={['#030816', 3, 15]} />
         
