@@ -37,9 +37,9 @@ function MarineSnow({ count = 1200, windSpeed = 0 }) {
   return (
     <points ref={pointsRef}>
       <bufferGeometry>
-        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} />
-        <bufferAttribute attach="attributes-aScale" count={count} array={scales} itemSize={1} />
-        <bufferAttribute attach="attributes-aSpeed" count={count} array={speeds} itemSize={1} />
+        <bufferAttribute attach="attributes-position" count={count} array={positions} itemSize={3} args={[positions, 3]} />
+        <bufferAttribute attach="attributes-aScale" count={count} array={scales} itemSize={1} args={[scales, 1]} />
+        <bufferAttribute attach="attributes-aSpeed" count={count} array={speeds} itemSize={1} args={[speeds, 1]} />
       </bufferGeometry>
       <shaderMaterial
         transparent
