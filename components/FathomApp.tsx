@@ -426,7 +426,7 @@ export function FathomApp() {
     <main className="scene-root" style={{ background: '#02050a' }}>
       <style>{hudStyles}</style>
 
-      {/* 🚨 ここに修正の集大成：気温の引継ぎと、停止時の逆転雪のための isSuspended を渡す */}
+      {/* 🚨 修正：地上の気温、および一時停止（Suspend）状態を Canvas へ完全に連動させる */}
       <DeepSeaCanvas
         progress={progress}
         windSpeed={windSpeed}
