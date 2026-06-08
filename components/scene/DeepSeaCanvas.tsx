@@ -57,21 +57,24 @@ function MarineSnow({ count = 1200, windSpeed = 0 }) {
           varying float vAlpha;
           void main() {
             vec3 pos = position;
-            pos.y += uTime * aSpeed * 1.5;
-            pos.x += uTime * uWind * aSpeed * 0.05;
-            
+            // ゆっくりとした上昇
+            pos.y += uTime * aSpeed * 0.8;
+            // 有機的な揺らぎ（横方向）
+            pos.x += sin(uTime * aSpeed * 12.0 + pos.y * 3.0) * 0.15;
+            // 浮き沈みの動き（縦方向）
+            pos.y += sin(uTime * aSpeed * 8.0 + pos.x * 2.0) * 0.1;
+
+            // 画面外に出たらループ
             pos.y = mod(pos.y + 10.0, 20.0) - 10.0;
             pos.x = mod(pos.x + 10.0, 20.0) - 10.0;
             
-            pos.x += sin(uTime * aSpeed * 10.0 + pos.y) * 0.1;
-
             vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
             gl_Position = projectionMatrix * mvPosition;
             
-            // 🚨 修正：サイズのベース数値を40.0から「150.0」に大幅アップ。さらに最低サイズ(3.0)を保証
+            // サイズのベース数値を40.0から「150.0」に大幅アップ。さらに最低サイズ(3.0)を保証
             gl_PointSize = max((150.0 * aScale * uDpr) / -mvPosition.z, 3.0);
             
-            // 🚨 修正：明滅のベース透明度を上げ、ハッキリ見えるように
+            // 明滅のベース透明度を上げ、ハッキリ見えるように
             vAlpha = 0.5 + 0.5 * sin(uTime * aSpeed * 15.0 + pos.x * 10.0);
           }
         `}
@@ -80,9 +83,9 @@ function MarineSnow({ count = 1200, windSpeed = 0 }) {
           void main() {
             float dist = length(gl_PointCoord - vec2(0.5));
             if (dist > 0.5) discard;
-            // 🚨 修正：減衰を弱め、中心がよりクッキリ発光するように
+            // 減衰を弱め、中心がよりクッキリ発光するように
             float alpha = smoothstep(0.5, 0.2, dist) * vAlpha;
-            // 🚨 修正：少し白っぽく（明るく）して目立たせる
+            // 少し白っぽく（明るく）して目立たせる
             gl_FragColor = vec4(0.8, 0.95, 1.0, alpha);
           }
         `}
