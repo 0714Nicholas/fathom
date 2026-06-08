@@ -19,7 +19,7 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
-// 🚨 修正：背景や枠線を完全に消し去った、至高のHUDボタンスタイル
+// 🚨 HUD用の極限まで削ぎ落としたスタイル
 const hudStyles = `
   .hud-btn {
     background: transparent;
@@ -124,19 +124,6 @@ function visibilityClass(
   const base = settled ? 'ui-revealed' : 'ui-veiled'
   const staggerCls = stagger ? `ui-stagger-${stagger}` : ''
   return [base, staggerCls].filter(Boolean).join(' ')
-}
-
-function ageTier(createdAtMs: number, now: number = Date.now()): 0 | 1 | 2 | 3 | 4 | 5 {
-  const elapsedMs = Math.max(0, now - createdAtMs)
-  const hour = 60 * 60 * 1000
-  const day = 24 * hour
-
-  if (elapsedMs < 1 * hour) return 0
-  if (elapsedMs < 6 * hour) return 1
-  if (elapsedMs < 1 * day) return 2
-  if (elapsedMs < 3 * day) return 3
-  if (elapsedMs < 14 * day) return 4
-  return 5
 }
 
 function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m: FathomMode) => void }) {
@@ -303,23 +290,39 @@ export function FathomApp() {
   }, [clouds, data, rainAmount, windSpeed])
 
   const audio = useDeepSeaAudio({ enabled: true, progress, windSpeed, rainAmount, descent })
-  const driftStartTimeRef = useRef<number | null>(null)
+  
+  // 🚨 修正：オーディオ停止時に水深が0に戻らないように累積経過時間を記録
+  const driftElapsedRef = useRef(0)
 
   useEffect(() => {
-    if (!audio.running) { driftStartTimeRef.current = null; setProgress(0); return }
+    if (!settled) { 
+      const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
+      setProgress(descent * INITIAL_DEPTH)
+      driftElapsedRef.current = 0
+      return 
+    }
+
+    // 🚨 修正：オーディオ停止時は計算をストップし、現在の水深を保持
+    if (!audio.running) {
+      return
+    }
+
+    let lastTick = Date.now()
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
     const TARGET_DEPTH = fathomMode === 'focus' ? 0.55 : 1.0
     const TIME_CONSTANT = fathomMode === 'sleep' ? 45 * 60 * 1000 : fathomMode === 'focus' ? 60 * 60 * 1000 : 2 * 60 * 60 * 1000
 
-    if (!settled) setProgress(descent * INITIAL_DEPTH)
-    else {
-      if (!driftStartTimeRef.current) driftStartTimeRef.current = Date.now()
-      const timer = window.setInterval(() => {
-        const elapsed = Date.now() - driftStartTimeRef.current!
-        setProgress(INITIAL_DEPTH + (TARGET_DEPTH - INITIAL_DEPTH) * (1 - Math.exp(-elapsed / TIME_CONSTANT)))
-      }, 1000)
-      return () => window.clearInterval(timer)
-    }
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      const delta = now - lastTick
+      lastTick = now
+      driftElapsedRef.current += delta
+
+      const currentDepth = INITIAL_DEPTH + (TARGET_DEPTH - INITIAL_DEPTH) * (1 - Math.exp(-driftElapsedRef.current / TIME_CONSTANT))
+      setProgress(currentDepth)
+    }, 1000)
+
+    return () => window.clearInterval(timer)
   }, [audio.running, descent, settled, fathomMode])
 
   const triggerResonance = useCallback((energy: number) => {
@@ -469,7 +472,6 @@ export function FathomApp() {
             {/* 下辺中央 [ACTION] & [COMPOSE] */}
             <div className={visibilityClass(settled, 4)} style={{ position: 'absolute', bottom: 40, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: '460px', display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
               
-              {/* 🚨 修正：文字を極小化 (fontSize: 12) し、静かな主張に */}
               <div style={{ width: '100%', height: 48, position: 'relative', marginBottom: 24 }}>
                 {composedText ? (
                   <HandwrittenLetter
@@ -495,11 +497,23 @@ export function FathomApp() {
                 </button>
               </div>
 
-              {/* オーディオコントロール */}
+              {/* 🚨 スマートな1ボタントグル (Suspend/Resume) */}
               <div style={{ display: 'flex', gap: 24, marginTop: 24 }}>
-                <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ resume ]</button>
-                <button className="hud-btn" onClick={() => void audio.suspend()}>[ suspend ]</button>
-                <button className="hud-btn" onClick={() => void audio.stop()}>[ stop ]</button>
+                {!audio.running ? (
+                  <button 
+                    className="hud-btn" 
+                    onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}
+                  >
+                    [ resume ]
+                  </button>
+                ) : (
+                  <button 
+                    className="hud-btn" 
+                    onClick={() => void audio.suspend()}
+                  >
+                    [ suspend ]
+                  </button>
+                )}
               </div>
             </div>
           </>
