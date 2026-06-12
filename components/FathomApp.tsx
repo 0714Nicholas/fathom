@@ -20,6 +20,16 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
 const hudStyles = `
+  /* 🚨 追加：明朝体のWebフォントを読み込み */
+  @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap');
+
+  /* 🚨 追加：人間の思考（日本語）を表す明朝体クラス */
+  .font-mincho {
+    font-family: 'Shippori Mincho', "Noto Serif JP", "Yu Mincho", "MS Mincho", serif;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+  }
+
   .hud-btn {
     background: transparent;
     border: none;
@@ -53,7 +63,24 @@ const hudStyles = `
   .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; display: flex; flex-direction: column; align-items: flex-end; }
   .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
   
-  .hud-textarea { flex: 1; background: transparent; border: none; color: rgba(255,255,255,0.7); font-family: sans-serif; font-size: 11px; padding: 8px 0; outline: none; resize: none; height: 32px; line-height: 16px; letter-spacing: 0.05em; }
+  /* 🚨 変更：入力欄を明朝体に。文字間隔を開けて詩的な佇まいに */
+  .hud-textarea { 
+    flex: 1; 
+    background: transparent; 
+    border: none; 
+    color: rgba(255,255,255,0.8); 
+    font-family: 'Shippori Mincho', "Noto Serif JP", "Yu Mincho", "MS Mincho", serif;
+    font-size: 13px; 
+    padding: 8px 0; 
+    outline: none; 
+    resize: none; 
+    height: 32px; 
+    line-height: 16px; 
+    letter-spacing: 0.1em; 
+  }
+  .hud-textarea::placeholder {
+    color: rgba(255,255,255,0.3);
+  }
 
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
@@ -204,7 +231,8 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
-          <div className="descend-caption" style={{ fontSize: 14, letterSpacing: '0.1em' }}>
+          {/* 🚨 変更：明朝体クラスを追加 */}
+          <div className="descend-caption font-mincho" style={{ fontSize: 14 }}>
             あなたの水底の座標（3つの単語）を入力してください。
           </div>
           <input
@@ -226,10 +254,10 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
             }}
             placeholder="e.g. silent pale snow"
           />
-          <div className="helper" style={{ letterSpacing: '0.1em', color: coordError ? '#ff8f8f' : 'inherit' }}>
+          <div className="helper font-mincho" style={{ color: coordError ? '#ff8f8f' : 'inherit' }}>
             {coordError ? '座標の記述が正しくありません。' : 'Enter を押して過去の記憶へ帰還します'}
           </div>
-          <button type="button" className="helper" onClick={() => setViewState('new')} style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none', letterSpacing: '0.1em' }}>
+          <button type="button" className="helper font-mincho" onClick={() => setViewState('new')} style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none' }}>
             ← 新しい都市から潜る
           </button>
         </div>
@@ -254,11 +282,11 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
             }}
             placeholder="e.g. Tokyo, London, New York"
           />
-          <div className="helper" style={{ letterSpacing: '0.1em' }}>
+          <div className="helper font-mincho">
             都市を入力し Enter で気象を受信します
           </div>
-          <button type="button" className="helper" onClick={() => setViewState('return')} style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none', letterSpacing: '0.1em' }}>
-            return to your past fathom (過去の座標へ帰還)
+          <button type="button" className="helper" onClick={() => setViewState('return')} style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none' }}>
+            <span style={{ fontFamily: 'monospace', letterSpacing: '0.1em' }}>return to your past fathom</span> <span className="font-mincho">(過去の座標へ帰還)</span>
           </button>
         </div>
       </div>
@@ -276,8 +304,8 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
   return (
     <div className="descend-stage" aria-hidden={isLeaving}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
-        <div className="descend-caption" style={{ marginBottom: 24, opacity: 0.8, letterSpacing: '0.1em', fontSize: 14 }}>
-          {resolvedCity} の気象を受信しました。潜行の目的を選択してください。
+        <div className="descend-caption font-mincho" style={{ marginBottom: 24, opacity: 0.8, fontSize: 14 }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 16 }}>{resolvedCity}</span> の気象を受信しました。潜行の目的を選択してください。
         </div>
         <ModeSelector current={mode} onSelect={setMode} />
         <button type="button" className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} onClick={() => onDescend(mode)} disabled={isLeaving}>
@@ -306,7 +334,6 @@ export function FathomApp() {
   const [beaconLeaving, setBeaconLeaving] = useState(false)
   const [beaconMounted, setBeaconMounted] = useState(true)
 
-  // 🚨 チャンネルモードと共鳴リンク状態
   const [channelMode, setChannelMode] = useState<'global' | 'resonance'>('global')
   const [linkedPeers, setLinkedPeers] = useState<Set<string>>(new Set())
   const [linkInputError, setLinkInputError] = useState(false)
@@ -377,10 +404,10 @@ export function FathomApp() {
   } = useRealtimeLetters({
     roomId: ROOM_ID, selfId, selfName: 'visitor', city: data?.city, depth: progress, descent,
     currentWeatherSnapshot: weatherSnapshot, preferredLang: null, onRemoteResonance: handleRemoteResonance,
-    enableFirstSurfacing: false, firstSurfacingGraceMs: 1600,
+    enableFirstSurfacing: false, 
+    firstSurfacingGraceMs: 1600,
   })
 
-  // 🚨 Resonanceチャンネルでのみ、共鳴した相手の手紙を表示
   const displayLetters = useMemo(() => {
     return liveLetters.filter(letter => {
       const senderId = (letter as any).authorId || (letter as any).senderId || (letter as any).coordinate || letter.id
@@ -388,7 +415,6 @@ export function FathomApp() {
     })
   }, [liveLetters, linkedPeers])
 
-  // 🚨 気配の共有：GLOBALでもRESONANCEでも、誰かが思考を落とせば「音と光」だけは響く
   const prevLettersCount = useRef(0)
   useEffect(() => {
     if (liveLetters.length > prevLettersCount.current) {
@@ -488,9 +514,10 @@ export function FathomApp() {
 
       <div className="hud-overlay" style={{ position: 'absolute', inset: 0, zIndex: 50, opacity: uiOpacity, transition: 'opacity 2s linear', pointerEvents: 'none' }}>
         
+        {/* 🚨 変更：潜行中のトランジション文言も明朝体に */}
         {hasDescended && !settled ? (
           <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: phase === 'descending' ? 0.8 : 0, transition: 'opacity 3s ease' }}>
-            <p style={{ fontSize: '14px', letterSpacing: '0.15em', lineHeight: '2.4', color: 'rgba(255,255,255,0.8)', fontFamily: 'sans-serif' }}>
+            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)' }}>
               都市のノイズを抜け、至高の孤独へ。<br/>残るのは思考のゆらぎと、遠き共鳴だけ。
             </p>
             <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>descending — {Math.round(descent * 100)}%</div>
@@ -515,7 +542,6 @@ export function FathomApp() {
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase' }}>save as memory</button>
             </div>
 
-            {/* 🚨 右パネル：チャンネル切り替えと共鳴UI */}
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
               <div style={{ display: 'flex', gap: 16, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 8, width: '100%', justifyContent: 'flex-end' }}>
                 <button
@@ -535,25 +561,35 @@ export function FathomApp() {
               </div>
 
               {channelMode === 'global' ? (
-                /* GLOBAL：思考を聞くだけ（文字は見えない） */
-                <div style={{ opacity: 0.5, fontSize: '10px', letterSpacing: '0.1em', textAlign: 'right', marginTop: 16 }}>
-                  listening to the anonymous tide...<br/>
-                  <span style={{ fontSize: '8px', opacity: 0.6 }}>(思考の気配のみを受信中)</span>
+                /* 🚨 変更：GLOBALの受信ステータス。英語（Monospace）と日本語（Mincho）の対比 */
+                <div style={{ textAlign: 'right', marginTop: 16 }}>
+                  <div style={{ opacity: 0.5, fontSize: '10px', letterSpacing: '0.1em', fontFamily: 'monospace', marginBottom: 4 }}>
+                    listening to the anonymous tide...
+                  </div>
+                  <div className="font-mincho" style={{ fontSize: '11px', opacity: 0.4 }}>
+                    ( 名もなき思考の波紋 )
+                  </div>
                 </div>
               ) : (
-                /* RESONANCE：3単語を入力して共鳴する */
                 <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                  {/* RESONANCE チャンネル：英語のまま（システム入力なので） */}
                   <input
                     type="text"
                     placeholder="enter 3-word coordinate"
-                    className="hud-textarea"
                     style={{ 
+                      background: 'transparent',
+                      color: 'rgba(255,255,255,0.8)',
+                      fontFamily: 'monospace',
+                      fontSize: '11px',
+                      letterSpacing: '0.05em',
                       width: '180px', 
+                      border: 'none',
                       borderBottom: `1px solid ${linkInputError ? 'rgba(255,100,100,0.5)' : 'rgba(255,255,255,0.2)'}`, 
                       height: 24, 
                       padding: '0 4px',
                       marginBottom: 16,
-                      textAlign: 'right'
+                      textAlign: 'right',
+                      outline: 'none'
                     }}
                     onChange={() => setLinkInputError(false)}
                     onKeyDown={(e) => {
@@ -570,7 +606,6 @@ export function FathomApp() {
                       }
                     }}
                   />
-                  {/* 共鳴相手の手紙のみを表示 */}
                   <LetterInbox
                     status={status} 
                     liveLetters={displayLetters} 
@@ -603,6 +638,7 @@ export function FathomApp() {
               </div>
 
               <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                {/* 🚨 入力欄は CSS (.hud-textarea) 側で明朝体に設定されています */}
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
