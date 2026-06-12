@@ -2,7 +2,7 @@
 
 import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { MeshTransmissionMaterial, Float, Environment, MeshDistortMaterial } from '@react-three/drei'
+import { Sphere, Icosahedron, MeshTransmissionMaterial, Float, Environment, MeshDistortMaterial } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
 
@@ -17,55 +17,16 @@ export function CrystalCoral({
   releaseCount = 0
 }: DeepSeaCanvasProps) {
   const outerMatRef = useRef<any>(null)
-  const innerMatRef = useRef<any>(null)
+  
+  // 🚨 修正：内側のコアを「液体（Plasma）」と「固体（Solid / 神聖幾何学）」の2つに分ける
+  const innerPlasmaRef = useRef<any>(null)
+  const innerSolidRef = useRef<any>(null)
+  const innerSolidMeshRef = useRef<THREE.Mesh>(null)
+  
   const groupRef = useRef<THREE.Group>(null)
   
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
-
-  // 🚨 CPUでの滑らかな変形状態を管理
-  const currentMorph = useRef(0)
-  const lastMorph = useRef(-1)
-
-  // 🚨 シェーダーを壊さない「CPU頂点計算」のためのデータを準備
-  const { basePositions, targetPositions, sphereGeometry } = useMemo(() => {
-    const radius = 0.4;
-    const sphere = new THREE.SphereGeometry(radius, 64, 64);
-    const icosa = new THREE.IcosahedronGeometry(radius, 0);
-
-    // 正二十面体の面（Plane）を計算
-    const posAttr = icosa.attributes.position;
-    const planes: THREE.Plane[] = [];
-    for (let i = 0; i < posAttr.count; i += 3) {
-      const v1 = new THREE.Vector3().fromBufferAttribute(posAttr, i);
-      const v2 = new THREE.Vector3().fromBufferAttribute(posAttr, i+1);
-      const v3 = new THREE.Vector3().fromBufferAttribute(posAttr, i+2);
-      const plane = new THREE.Plane().setFromCoplanarPoints(v1, v2, v3);
-      if (plane.normal.lengthSq() > 0) planes.push(plane);
-    }
-
-    const spherePosAttr = sphere.attributes.position;
-    const basePos = new Float32Array(spherePosAttr.array);
-    const targetPos = new Float32Array(spherePosAttr.count * 3);
-
-    // 球体の頂点を、最も近い二十面体の面に射影（吸着）させる
-    for (let i = 0; i < spherePosAttr.count; i++) {
-      const v = new THREE.Vector3().fromBufferAttribute(spherePosAttr, i);
-      let closestPoint = new THREE.Vector3();
-      let minDstSq = Infinity;
-      for (let j = 0; j < planes.length; j++) {
-        const projected = planes[j].projectPoint(v, new THREE.Vector3());
-        const dstSq = v.distanceToSquared(projected);
-        if (dstSq < minDstSq) {
-          minDstSq = dstSq;
-          closestPoint = projected;
-        }
-      }
-      closestPoint.toArray(targetPos, i * 3);
-    }
-
-    return { basePositions: basePos, targetPositions: targetPos, sphereGeometry: sphere };
-  }, []);
 
   const evolutionScore = (diveTimeMs / 60000) + (releaseCount * 5)
   const evolutionRatio = useMemo(() => THREE.MathUtils.clamp(evolutionScore / 100, 0, 1), [evolutionScore])
@@ -100,44 +61,45 @@ export function CrystalCoral({
 
     const time = state.clock.elapsedTime
 
-    // 🚨 CPU側での頂点モーフィング計算（水深50%から開始）
-    const targetMorphValue = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
-    // ゆっくりと変形させるための lerp
-    currentMorph.current = THREE.MathUtils.lerp(currentMorph.current, targetMorphValue, delta * 0.5);
+    // 🚨 修正：水深50%から100%にかけての「硬化・結晶化」の進行度（0.0 〜 1.0）
+    const depthHardening = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
 
-    // 頂点の位置を毎フレーム書き換える（シェーダーを壊さない安全な方法）
-    if (Math.abs(currentMorph.current - lastMorph.current) > 0.001) {
-      const posAttr = sphereGeometry.attributes.position;
-      for (let i = 0; i < basePositions.length; i++) {
-        posAttr.array[i] = basePositions[i] + (targetPositions[i] - basePositions[i]) * currentMorph.current;
-      }
-      posAttr.needsUpdate = true;
-      sphereGeometry.computeVertexNormals(); // 陰影を正しく出すための法線再計算
-      lastMorph.current = currentMorph.current;
-    }
+    const baseGlow = 1.5 + Math.sin(time * 3.0) * 0.5 
+    const flashGlow = flashEnergy.current * 5.0 
 
-    if (innerMatRef.current) {
-      const baseGlow = 1.5 + Math.sin(time * 3.0) * 0.5 
-      const flashGlow = flashEnergy.current * 5.0 
-      innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
-      
+    // 1. 液状コア（Plasma）の制御：硬化が進むにつれて光が消えていく
+    if (innerPlasmaRef.current) {
+      innerPlasmaRef.current.emissiveIntensity = (baseGlow + flashGlow) * (1.0 - depthHardening);
       const pressureDistortion = progress * 0.3
       const evolutionDistortion = evolutionRatio * 0.4 
-      innerMatRef.current.distort = 0.5 + pressureDistortion + evolutionDistortion + flashEnergy.current * 0.4
-      innerMatRef.current.speed = 8.0 + (evolutionRatio * 6.0) + flashEnergy.current * 6.0
+      innerPlasmaRef.current.distort = 0.5 + pressureDistortion + evolutionDistortion + flashEnergy.current * 0.4
+      innerPlasmaRef.current.speed = 8.0 + (evolutionRatio * 6.0) + flashEnergy.current * 6.0
     }
 
+    // 2. 固体コア（Solid / 神聖幾何学）の制御：硬化が進むにつれて浮かび上がり、回転する
+    if (innerSolidRef.current && innerSolidMeshRef.current) {
+      innerSolidRef.current.emissiveIntensity = (baseGlow + flashGlow) * depthHardening * 2.0;
+      innerSolidMeshRef.current.rotation.x += delta * (0.2 + depthHardening * 0.5);
+      innerSolidMeshRef.current.rotation.y += delta * (0.3 + depthHardening * 0.8);
+    }
+
+    // 3. 外側のガラス（Shell）の制御：硬化が進むと動きが凍りつき、屈折率と厚みが異常に高まる
     if (outerMatRef.current) {
       const flashAtten = new THREE.Color('#ffffff') 
       outerMatRef.current.attenuationColor.lerpColors(outerColors, flashAtten, flashEnergy.current)
 
       const baseDistortion = 0.4 + (windSpeed * 0.06)
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(
-        outerMatRef.current.distortion,
-        baseDistortion + flashEnergy.current * 1.5,
-        delta * 3
-      )
-      outerMatRef.current.temporalDistortion = 0.2 + (windSpeed * 0.05) + flashEnergy.current * 1.5
+      // うねり（temporalDistortion）を depthHardening で 0 に近づけ、完全に「凍結」させる
+      const currentTemporalDistortion = 0.2 + (windSpeed * 0.05) + flashEnergy.current * 1.5;
+      outerMatRef.current.temporalDistortion = THREE.MathUtils.lerp(currentTemporalDistortion, 0.0, depthHardening);
+      
+      // 形の歪み（distortion）を大きくして、切り出された鉱石のような見た目に固定する
+      const currentDistortion = baseDistortion + flashEnergy.current * 1.5;
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(currentDistortion, 0.8, depthHardening);
+
+      // 屈折率（ior）と厚み（thickness）をさらに引き上げ、重厚なクリスタル化を表現
+      outerMatRef.current.ior = THREE.MathUtils.lerp(glassIor, 1.45, depthHardening);
+      outerMatRef.current.thickness = THREE.MathUtils.lerp(glassThickness, 5.0, depthHardening);
     }
 
     if (groupRef.current) {
@@ -169,10 +131,10 @@ export function CrystalCoral({
       <Environment preset="night" />
 
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-        {/* 🚨 morphTargets を使わず、直接更新された sphereGeometry を渡す */}
-        <mesh geometry={sphereGeometry}> 
+        {/* 🚨 1. 潜行前半：液状のプラズマコア */}
+        <Sphere args={[0.4, 64, 64]}> 
           <MeshDistortMaterial
-            ref={innerMatRef}
+            ref={innerPlasmaRef}
             color="#000000" 
             emissive={coreColors.emissive} 
             emissiveIntensity={1.5} 
@@ -180,10 +142,25 @@ export function CrystalCoral({
             distort={0.6} 
             speed={8}     
           />
-        </mesh>
+        </Sphere>
+
+        {/* 🚨 2. 潜行後半：硬化して浮かび上がる神聖幾何学（正二十面体）コア */}
+        <Icosahedron ref={innerSolidMeshRef} args={[0.35, 0]}>
+          <meshStandardMaterial
+            ref={innerSolidRef}
+            color="#000000"
+            emissive={coreColors.emissive}
+            emissiveIntensity={0} // 初期値は0（見えない）
+            toneMapped={false}
+            roughness={0.2}
+            metalness={0.8}
+            wireframe={false} // trueにすると線画の幾何学模様になります（お好みで）
+          />
+        </Icosahedron>
       </Float>
 
-      <mesh geometry={sphereGeometry}>
+      {/* 🚨 3. 外側のガラス（バグらない純粋なSphere） */}
+      <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
           thickness={glassThickness}   
@@ -198,7 +175,7 @@ export function CrystalCoral({
           attenuationDistance={3.0} 
           envMapIntensity={0.8}       
         />
-      </mesh>
+      </Sphere>
     </group>
   )
 }
