@@ -2,12 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HandwrittenLetter } from '@/components/letters/HandwrittenLetter'
-import { LetterInbox } from '@/components/letters/LetterInbox'
 import { DeepSeaCanvas } from '@/components/scene/DeepSeaCanvas'
 import { useDeepSeaAudio } from '@/hooks/useDeepSeaAudio'
 import {
   useRealtimeLetters,
-  type LetterPayload,
   type ResonancePulsePayload,
 } from '@/hooks/useRealtimeLetters'
 import { useWeather } from '@/hooks/useWeather'
@@ -41,8 +39,6 @@ const hudStyles = `
     cursor: default;
     text-shadow: none;
   }
-
-  /* デスクトップ基準の配置 */
   .fathom-logo { 
     position: fixed; top: 32px; left: 0; width: 100%; text-align: center; 
     pointer-events: none; z-index: 100; transition: opacity 2s linear; 
@@ -51,24 +47,27 @@ const hudStyles = `
   }
   .hud-top-left { position: absolute; top: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
   .hud-bottom-left { position: absolute; bottom: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
-  .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; }
   .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
-  
   .hud-textarea { flex: 1; background: transparent; border: none; color: rgba(255,255,255,0.7); font-family: sans-serif; font-size: 11px; padding: 8px 0; outline: none; resize: none; height: 32px; line-height: 16px; letter-spacing: 0.05em; }
 
-  /* スマホ用（画面幅768px以下）のレイアウト調整 */
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
     .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
-    .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
-    
     .hud-textarea { font-size: 16px; height: 40px; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
-    
     .descend-stage { padding-top: 15vh; }
     .descend-stage input { width: 85vw !important; max-width: 320px; }
+  }
+
+  /* 思考が溶けるアニメーション */
+  .fade-out-thought {
+    animation: dissolve 4s ease-in-out forwards;
+  }
+  @keyframes dissolve {
+    0% { opacity: 1; filter: blur(0px); }
+    100% { opacity: 0; filter: blur(4px); }
   }
 `
 
@@ -85,6 +84,8 @@ function useSelfId(): string {
   })
   return selfId
 }
+
+// ... (downloadCrystalMemory, visibilityClass, ModeSelector, EntranceStage は変更なしのため省略せずにそのまま記述します)
 
 function downloadCrystalMemory(coordinate: string, depth: number) {
   const canvas = document.createElement('canvas')
@@ -145,10 +146,7 @@ function downloadCrystalMemory(coordinate: string, depth: number) {
   document.body.removeChild(a)
 }
 
-function visibilityClass(
-  settled: boolean,
-  stagger?: 1 | 2 | 3 | 4 | 5 | 6
-): string {
+function visibilityClass(settled: boolean, stagger?: 1 | 2 | 3 | 4 | 5 | 6): string {
   const base = settled ? 'ui-revealed' : 'ui-veiled'
   const staggerCls = stagger ? `ui-stagger-${stagger}` : ''
   return [base, staggerCls].filter(Boolean).join(' ')
@@ -294,7 +292,9 @@ export function FathomApp() {
   const [composeKey, setComposeKey] = useState(0)
   const [resonancePulse, setResonancePulse] = useState(0)
   const [resonanceEnergy, setResonanceEnergy] = useState(0.14)
+  
   const [composedText, setComposedText] = useState<string | null>(null)
+  const [isDissolving, setIsDissolving] = useState(false)
 
   const [hasDescended, setHasDescended] = useState(false)
   const [beaconLeaving, setBeaconLeaving] = useState(false)
@@ -318,7 +318,6 @@ export function FathomApp() {
   }, [clouds, data, rainAmount, windSpeed])
 
   const audio = useDeepSeaAudio({ enabled: true, progress, windSpeed, rainAmount, descent })
-  
   const driftElapsedRef = useRef(0)
 
   useEffect(() => {
@@ -328,7 +327,6 @@ export function FathomApp() {
       driftElapsedRef.current = 0
       return 
     }
-
     if (!audio.running) return
 
     let lastTick = Date.now()
@@ -341,7 +339,6 @@ export function FathomApp() {
       const delta = now - lastTick
       lastTick = now
       driftElapsedRef.current += delta
-
       const currentDepth = INITIAL_DEPTH + (TARGET_DEPTH - INITIAL_DEPTH) * (1 - Math.exp(-driftElapsedRef.current / TIME_CONSTANT))
       setProgress(currentDepth)
     }, 1000)
@@ -361,43 +358,47 @@ export function FathomApp() {
     triggerResonance(damped)
   }, [audio, triggerResonance, fathomMode])
 
-  const {
-    status, liveLetters, archive, activeLetter, presenceCount, archiveLoading, latestHeatmapPulse,
-    sendLetter, sendResonance, dismissActive, manualPlay, buryOwnLetter,
-  } = useRealtimeLetters({
+  // Inboxを削除したため、最低限の通信と気配（共鳴）の受信のみを行う
+  const { status, liveLetters, sendLetter, sendResonance, latestHeatmapPulse } = useRealtimeLetters({
     roomId: ROOM_ID, selfId, selfName: 'visitor', city: data?.city, depth: progress, descent,
     currentWeatherSnapshot: weatherSnapshot, preferredLang: null, onRemoteResonance: handleRemoteResonance,
     enableFirstSurfacing: true, firstSurfacingGraceMs: 1600,
   })
 
-  const lastActiveLetterRef = useRef<string | null>(null)
+  // 🚨 誰かが手紙を放流した時、「文字は読めないが、重い反響音と光だけが届く」気配の共有ギミック
+  const prevLettersCount = useRef(0)
   useEffect(() => {
-    if (!activeLetter) return
-    if (lastActiveLetterRef.current === activeLetter.id) return
-    lastActiveLetterRef.current = activeLetter.id
-    audio.triggerFrictionImpulse({ intensity: activeLetter.source === 'archive' ? 0.26 : 0.4, durationMs: activeLetter.source === 'archive' ? 240 : 180, color: 0.7 })
-    triggerResonance(activeLetter.source === 'archive' ? 0.22 : 0.32)
-  }, [activeLetter, audio, triggerResonance])
+    if (liveLetters.length > prevLettersCount.current) {
+      // 誰かの思考が海に落ちた衝撃
+      audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 240, color: 0.7 })
+      triggerResonance(0.32)
+    }
+    prevLettersCount.current = liveLetters.length
+  }, [liveLetters.length, audio, triggerResonance])
 
   const canSend = useMemo(() => draft.trim().length > 0, [draft])
 
-  const handleSendLetter = useCallback(async () => {
+  // 🚨 思考の放流プロセス
+  const handleReleaseThought = useCallback(async () => {
     if (!canSend) return
     const trimmed = draft.trim()
     setComposedText(trimmed)
     setDraft('')
     setComposeKey((n) => n + 1)
+    setIsDissolving(false)
     triggerResonance(0.26)
+    
+    // ネットワークの彼方へ放流（文字としては受信されない）
     await sendLetter(trimmed)
-  }, [canSend, draft, sendLetter, triggerResonance])
 
-  const handleBury = useCallback(async (letterId: string) => {
-    if (await buryOwnLetter(letterId)) {
-      dismissActive()
-      audio.triggerFrictionImpulse({ intensity: 0.18, durationMs: 220, color: 0.66 })
-      triggerResonance(0.12)
-    }
-  }, [audio, buryOwnLetter, dismissActive, triggerResonance])
+    // 12秒後に文字がボヤけて海に溶けるアニメーションを開始
+    setTimeout(() => {
+      setIsDissolving(true)
+      // 完全に透明になったらDOMからも消去
+      setTimeout(() => setComposedText(null), 4000)
+    }, 12000)
+
+  }, [canSend, draft, sendLetter, triggerResonance])
 
   const handleDescend = useCallback((selectedMode: FathomMode) => {
     if (hasDescended) return
@@ -426,7 +427,6 @@ export function FathomApp() {
     <main className="scene-root" style={{ background: '#02050a' }}>
       <style>{hudStyles}</style>
 
-      {/* 🚨 修正：地上の気温、および一時停止（Suspend）状態を Canvas へ完全に連動させる */}
       <DeepSeaCanvas
         progress={progress}
         windSpeed={windSpeed}
@@ -464,6 +464,7 @@ export function FathomApp() {
 
         {hasDescended && settled ? (
           <>
+            {/* 左上 [SURFACE] */}
             <div className={`hud-top-left ${visibilityClass(settled, 1)}`}>
               <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ SURFACE ]</div>
               <div style={{ marginBottom: 4 }}>Origin: {data?.city ?? 'Unknown'}</div>
@@ -471,6 +472,7 @@ export function FathomApp() {
               <div>Surface Temp: {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}</div>
             </div>
 
+            {/* 左下 [ABYSS] */}
             <div className={`hud-bottom-left ${visibilityClass(settled, 2)}`}>
               <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ ABYSS ]</div>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
@@ -480,19 +482,11 @@ export function FathomApp() {
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase' }}>save as memory</button>
             </div>
 
-            <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
-              <LetterInbox
-                status={status} liveLetters={liveLetters} archive={archive} archiveLoading={archiveLoading} activeLetter={activeLetter} presenceCount={presenceCount} selfId={selfId}
-                onSelectLetter={(letter: LetterPayload) => { manualPlay(letter); triggerResonance(letter.source === 'archive' ? 0.18 : 0.24) }}
-                onDismiss={dismissActive}
-                onActiveStrokeImpulse={(intensity, durationMs) => { audio.triggerFrictionImpulse({ intensity, durationMs, color: 0.8 }); triggerResonance(Math.max(0.12, intensity * 0.9)) }}
-                onActiveComplete={() => { audio.triggerFrictionImpulse({ intensity: 0.14, durationMs: 90, color: 0.74 }); triggerResonance(0.16) }}
-                onBury={(id) => void handleBury(id)}
-              />
-            </div>
+            {/* 右上のInboxは完全に削除され、絶対的な孤独空間になりました */}
 
+            {/* 下辺中央 思考の入力と放流 */}
             <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
-              <div style={{ width: '100%', height: 48, position: 'relative', marginBottom: 24 }}>
+              <div className={isDissolving ? 'fade-out-thought' : ''} style={{ width: '100%', height: 48, position: 'relative', marginBottom: 24 }}>
                 {composedText ? (
                   <HandwrittenLetter
                     animateKey={composeKey} text={composedText} fontUrl="/fonts/ShipporiMincho-Regular.ttf"
@@ -508,11 +502,11 @@ export function FathomApp() {
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  placeholder="write a quiet letter..."
+                  placeholder="思考を深海へ沈める..."
                   className="hud-textarea"
                 />
-                <button className="hud-btn" onClick={() => void handleSendLetter()} disabled={!canSend || status !== 'subscribed'}>
-                  [ send ]
+                <button className="hud-btn" onClick={() => void handleReleaseThought()} disabled={!canSend || status !== 'subscribed'}>
+                  [ release ]
                 </button>
               </div>
 
