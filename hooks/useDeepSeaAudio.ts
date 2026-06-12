@@ -31,6 +31,18 @@ export type DeepSeaAudioController = {
   triggerFrictionImpulse: (options?: FrictionImpulseOptions) => void
 }
 
+// 🚨 復活させた型定義（これがないとコンパイルが通りません）
+type AudioGraphRefs = {
+  ctx: AudioContext | null
+  node: AudioWorkletNode | null
+  lowpass: BiquadFilterNode | null
+  compressor: DynamicsCompressorNode | null
+  master: GainNode | null
+  delayNode: DelayNode | null
+  surfaceSource: AudioBufferSourceNode | null
+  surfaceGain: GainNode | null
+}
+
 const { lerp, clamp } = THREE.MathUtils;
 
 function expInterpolate(from: number, to: number, t: number) {
@@ -357,27 +369,21 @@ export function useDeepSeaAudio({
     const silenceRatio = THREE.MathUtils.clamp((progress - silenceStart) / (silenceEnd - silenceStart), 0, 1);
     const silenceGain = 1.0 - silenceRatio; 
 
-    // 🚨 修正：深度(progress)による「水圧と海流の変化」をダイナミックに計算
     const basePink = mapRainToPinkLevel(rainAmount);
-    // 深くなるにつれて、高い「サーッ」という音（Pink）が吸収されて消える
     const depthPink = lerp(basePink, basePink * 0.1, progress); 
 
-    // 逆に、深くなるにつれて、腹に響く「ゴォォォォ」という重低音（Brown）が爆増する
     const depthBrown = lerp(0.5, 3.5, Math.pow(progress, 2)); 
 
     const baseLfoRate = mapWindToLfoRate(windSpeed);
-    // 深海では海流のうねりが、速い波から、重く遅い「水の塊の移動」へと鈍化する（速度が15%に落ちる）
     const depthLfoRate = lerp(baseLfoRate, baseLfoRate * 0.15, progress); 
 
     const baseLfoDepth = mapWeatherToLfoDepth(windSpeed, rainAmount, descent);
-    // うねりの速度は落ちるが、その水圧の「重み（振幅）」は2倍に増す
     const depthLfoDepth = lerp(baseLfoDepth, baseLfoDepth * 2.0, progress); 
 
     const baseGainVal = mapWeatherToBaseGain(windSpeed, rainAmount, descent) * silenceGain;
     const stereoWidth = clamp(0.08 + windSpeed / 40, 0.08, 0.32)
     const drift = clamp(0.03 + rainAmount / 40, 0.03, 0.18)
 
-    // ワークレットに新しい水圧パラメーターを送信
     setKRateParam(node, 'pinkLevel', depthPink, now, 0.25)
     setKRateParam(node, 'brownLevel', depthBrown, now, 0.25)
     setKRateParam(node, 'baseGain', baseGainVal, now, 0.35)
@@ -412,7 +418,6 @@ export function useDeepSeaAudio({
     lowpass.frequency.setValueAtTime(current, now)
     lowpass.frequency.exponentialRampToValueAtTime(target, now + 0.85)
 
-    // 🚨 修正：深く潜るほど音がこもるだけでなく、特有の「水中の共鳴（Q）」を上げてリアルな質感を出す
     const qTarget = lerp(0.6, 2.5, clamp(progress, 0, 1))
     lowpass.Q.cancelScheduledValues(now)
     lowpass.Q.setTargetAtTime(qTarget, now, 0.45)
