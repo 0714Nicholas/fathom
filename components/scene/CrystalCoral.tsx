@@ -18,7 +18,6 @@ export function CrystalCoral({
 }: DeepSeaCanvasProps) {
   const outerMatRef = useRef<any>(null)
   
-  // 🚨 修正：内側のコアを「液体（Plasma）」と「固体（Solid / 神聖幾何学）」の2つに分ける
   const innerPlasmaRef = useRef<any>(null)
   const innerSolidRef = useRef<any>(null)
   const innerSolidMeshRef = useRef<THREE.Mesh>(null)
@@ -61,43 +60,50 @@ export function CrystalCoral({
 
     const time = state.clock.elapsedTime
 
-    // 🚨 修正：水深50%から100%にかけての「硬化・結晶化」の進行度（0.0 〜 1.0）
     const depthHardening = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
 
     const baseGlow = 1.5 + Math.sin(time * 3.0) * 0.5 
     const flashGlow = flashEnergy.current * 5.0 
 
-    // 1. 液状コア（Plasma）の制御：硬化が進むにつれて光が消えていく
+    // 1. 液状コア（Plasma）：硬化が進むにつれて透明になって消えていく
     if (innerPlasmaRef.current) {
-      innerPlasmaRef.current.emissiveIntensity = (baseGlow + flashGlow) * (1.0 - depthHardening);
+      innerPlasmaRef.current.emissiveIntensity = baseGlow + flashGlow;
+      innerPlasmaRef.current.opacity = 1.0 - depthHardening; // 🚨 透明度を下げてフェードアウト
+      
       const pressureDistortion = progress * 0.3
       const evolutionDistortion = evolutionRatio * 0.4 
       innerPlasmaRef.current.distort = 0.5 + pressureDistortion + evolutionDistortion + flashEnergy.current * 0.4
       innerPlasmaRef.current.speed = 8.0 + (evolutionRatio * 6.0) + flashEnergy.current * 6.0
     }
 
-    // 2. 固体コア（Solid / 神聖幾何学）の制御：硬化が進むにつれて浮かび上がり、回転する
+    // 2. 固体コア（Solid）：硬化が進むにつれて浮かび上がり、回転する
     if (innerSolidRef.current && innerSolidMeshRef.current) {
-      innerSolidRef.current.emissiveIntensity = (baseGlow + flashGlow) * depthHardening * 2.0;
+      // 🚨 水深50%までは完全に非表示にして、黒いゴミが突き抜けるのを防ぐ
+      innerSolidMeshRef.current.visible = depthHardening > 0;
+      
+      innerSolidRef.current.emissiveIntensity = (baseGlow + flashGlow) * 2.0;
+      innerSolidRef.current.opacity = depthHardening; // 🚨 徐々に不透明になって現れる
+      
+      // 🚨 出現時に少しずつ大きくなる演出（0.5倍から1.0倍へ）
+      const solidScale = 0.5 + depthHardening * 0.5;
+      innerSolidMeshRef.current.scale.set(solidScale, solidScale, solidScale);
+
       innerSolidMeshRef.current.rotation.x += delta * (0.2 + depthHardening * 0.5);
       innerSolidMeshRef.current.rotation.y += delta * (0.3 + depthHardening * 0.8);
     }
 
-    // 3. 外側のガラス（Shell）の制御：硬化が進むと動きが凍りつき、屈折率と厚みが異常に高まる
+    // 3. 外側のガラス（Shell）
     if (outerMatRef.current) {
       const flashAtten = new THREE.Color('#ffffff') 
       outerMatRef.current.attenuationColor.lerpColors(outerColors, flashAtten, flashEnergy.current)
 
       const baseDistortion = 0.4 + (windSpeed * 0.06)
-      // うねり（temporalDistortion）を depthHardening で 0 に近づけ、完全に「凍結」させる
       const currentTemporalDistortion = 0.2 + (windSpeed * 0.05) + flashEnergy.current * 1.5;
       outerMatRef.current.temporalDistortion = THREE.MathUtils.lerp(currentTemporalDistortion, 0.0, depthHardening);
       
-      // 形の歪み（distortion）を大きくして、切り出された鉱石のような見た目に固定する
       const currentDistortion = baseDistortion + flashEnergy.current * 1.5;
       outerMatRef.current.distortion = THREE.MathUtils.lerp(currentDistortion, 0.8, depthHardening);
 
-      // 屈折率（ior）と厚み（thickness）をさらに引き上げ、重厚なクリスタル化を表現
       outerMatRef.current.ior = THREE.MathUtils.lerp(glassIor, 1.45, depthHardening);
       outerMatRef.current.thickness = THREE.MathUtils.lerp(glassThickness, 5.0, depthHardening);
     }
@@ -131,7 +137,7 @@ export function CrystalCoral({
       <Environment preset="night" />
 
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-        {/* 🚨 1. 潜行前半：液状のプラズマコア */}
+        {/* 🚨 1. 潜行前半：液状のプラズマコア（透明度を有効化） */}
         <Sphere args={[0.4, 64, 64]}> 
           <MeshDistortMaterial
             ref={innerPlasmaRef}
@@ -140,26 +146,27 @@ export function CrystalCoral({
             emissiveIntensity={1.5} 
             toneMapped={false}
             distort={0.6} 
-            speed={8}     
+            speed={8}  
+            transparent={true} // 🚨 追加：透けるようにする
           />
         </Sphere>
 
-        {/* 🚨 2. 潜行後半：硬化して浮かび上がる神聖幾何学（正二十面体）コア */}
-        <Icosahedron ref={innerSolidMeshRef} args={[0.35, 0]}>
+        {/* 🚨 2. 潜行後半：硬化して浮かび上がる神聖幾何学（透明度を有効化） */}
+        <Icosahedron ref={innerSolidMeshRef} args={[0.35, 0]} visible={false}>
           <meshStandardMaterial
             ref={innerSolidRef}
             color="#000000"
             emissive={coreColors.emissive}
-            emissiveIntensity={0} // 初期値は0（見えない）
+            emissiveIntensity={0} 
             toneMapped={false}
             roughness={0.2}
             metalness={0.8}
-            wireframe={false} // trueにすると線画の幾何学模様になります（お好みで）
+            wireframe={false} 
+            transparent={true} // 🚨 追加：透けるようにする
           />
         </Icosahedron>
       </Float>
 
-      {/* 🚨 3. 外側のガラス（バグらない純粋なSphere） */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
