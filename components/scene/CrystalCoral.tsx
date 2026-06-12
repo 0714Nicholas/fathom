@@ -21,15 +21,14 @@ export function CrystalCoral({
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
 
-  // 気温（temp）による「明確な色変化」 (-10℃ 〜 35℃)
   const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
   
   const coreColors = useMemo(() => {
-    // 🚨 修正：黒く沈まないように、ベースの色に明るさと彩度を持たせる
-    const coldEmissive = new THREE.Color('#0066ff') // 冴え渡るアクアブルー
-    const hotEmissive = new THREE.Color('#00ffa5')  // 鮮やかなエメラルド
-    const coldBase = new THREE.Color('#0044cc')
-    const hotBase = new THREE.Color('#00aa55')
+    // 🚨 修正：色が白く飛ばないように、より深く鮮やかな原色を指定
+    const coldEmissive = new THREE.Color('#0055ff') // 冴え渡るアクアブルー
+    const hotEmissive = new THREE.Color('#00ff44')  // 生命力あふれる純粋な緑
+    const coldBase = new THREE.Color('#0022aa')
+    const hotBase = new THREE.Color('#008822')
 
     return {
       emissive: new THREE.Color().lerpColors(coldEmissive, hotEmissive, colorRatio),
@@ -38,14 +37,13 @@ export function CrystalCoral({
   }, [colorRatio])
 
   const outerColors = useMemo(() => {
-    // 🚨 修正：ガラス自体の透過色も、濁らないように明るく澄んだ色へ
-    const coldAtten = new THREE.Color('#aaddff')
-    const hotAtten = new THREE.Color('#aaffdd')
+    // 🚨 修正：ガラス自体の透過色を明るく設定
+    const coldAtten = new THREE.Color('#88ccff')
+    const hotAtten = new THREE.Color('#66ffaa')
     return new THREE.Color().lerpColors(coldAtten, hotAtten, colorRatio)
   }, [colorRatio])
 
   const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.5, 0.4, clouds / 100), [clouds])
-  // 最低限の粗さ（0.05）を残して、ガラスの表面を少しだけすりガラス状にする
   const waterMurkiness = useMemo(() => Math.max(0.05, THREE.MathUtils.lerp(0.01, 0.25, Math.min(rainAmount / 5, 1))), [rainAmount])
 
   useFrame((state, delta) => {
@@ -58,9 +56,9 @@ export function CrystalCoral({
     const time = state.clock.elapsedTime
 
     if (innerMatRef.current) {
-      // 🚨 修正：内側からの発光を少し戻し（4.0 → 6.0）、黒ずみを光で飛ばす
-      const baseGlow = 6.0 + Math.sin(time * 3.0) * 1.5 
-      const flashGlow = flashEnergy.current * 10.0 
+      // 🚨 修正：ベースの発光を 6.0 → 2.0 に大幅に下げ、色が白に飛ぶのを防ぐ
+      const baseGlow = 2.0 + Math.sin(time * 3.0) * 0.5 
+      const flashGlow = flashEnergy.current * 6.0 
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
       const pressureDistortion = progress * 0.3
@@ -105,38 +103,42 @@ export function CrystalCoral({
 
   return (
     <group ref={groupRef} scale={0.55} position={[0, -0.2, 0]}>
-      <ambientLight intensity={lightIntensity * 0.2} />
+      <ambientLight intensity={lightIntensity * 0.3} />
       <directionalLight position={[5, 5, 2]} intensity={lightIntensity} color="#8fd8ff" />
       <Environment preset="night" />
 
+      {/* 内側のコア */}
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
         <Sphere args={[0.4, 64, 64]}> 
           <MeshDistortMaterial
             ref={innerMatRef}
             color={coreColors.base}
             emissive={coreColors.emissive} 
-            emissiveIntensity={6.0} 
-            toneMapped={false}
+            emissiveIntensity={2.0} // 白飛び防止
+            toneMapped={true} // 🚨 追加：色味を保つためのトーンマッピング有効化
             distort={0.6} 
             speed={8}     
           />
         </Sphere>
       </Float>
 
+      {/* 外側のガラス外殻 */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={2.0}             
+          thickness={1.5}             
           roughness={waterMurkiness}      
-          transmission={1}            
-          ior={1.15} // 🚨 修正：屈折率を1.33から1.15に下げて、背景の黒を吸い込むのを防ぐ
-          chromaticAberration={0.04}  
+          transmission={0.9} // 🚨 修正：1.0(完全透明)から0.9に下げ、ガラス自体に色を残す       
+          ior={1.05} // 🚨 修正：屈折率を極限まで下げて「黒背景の吸い込み」を防止
+          chromaticAberration={0.05}  
           distortion={0.5}            
           temporalDistortion={0.3}    
-          color="#ffffff"             
+          color={outerColors} // 🚨 修正：白ではなく、温度に合わせた色を指定
+          emissive={outerColors} // 🚨 修正：ガラス自体をごく僅かに発光させ、暗黒化を防ぐ
+          emissiveIntensity={0.15}
           attenuationColor={outerColors} 
-          attenuationDistance={4.0} // 🚨 修正：距離を伸ばして、黒ずみ（過剰な減衰）を防ぐ  
-          envMapIntensity={1.5}       
+          attenuationDistance={2.0}  
+          envMapIntensity={0.3} // 🚨 修正：暗い空（環境）の反射を弱める       
         />
       </Sphere>
     </group>
