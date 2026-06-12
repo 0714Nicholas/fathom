@@ -212,31 +212,40 @@ export function useDeepSeaAudio({
     return graphRef.current
   }, [shallowCutoff, workletUrl])
 
+  // 🚨 修正：ソナー音を廃止し、本物の気泡（1〜3連発のピッチアップ）に変更
   const playBubble = useCallback(() => {
     const { ctx, lowpass, delayNode } = graphRef.current
     if (!ctx || !lowpass || !delayNode || ctx.state !== 'running') return
 
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.type = 'sine'
+    const bubbleCount = Math.floor(Math.random() * 3) + 1
     
-    const t = ctx.currentTime
-    const startFreq = 800 + Math.random() * 400 
-    const endFreq = startFreq * 0.4 
-    
-    osc.frequency.setValueAtTime(startFreq, t)
-    osc.frequency.exponentialRampToValueAtTime(endFreq, t + 0.1)
+    for (let i = 0; i < bubbleCount; i++) {
+      const timeOffset = i * (0.1 + Math.random() * 0.1)
+      
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      
+      const t = ctx.currentTime + timeOffset
+      // 物理現象に基づく気泡：低い音から高い音へ一瞬で跳ね上がる
+      const startFreq = 150 + Math.random() * 150 
+      const endFreq = startFreq * (2.0 + Math.random() * 1.5) 
+      
+      osc.frequency.setValueAtTime(startFreq, t)
+      osc.frequency.exponentialRampToValueAtTime(endFreq, t + 0.08)
 
-    gain.gain.setValueAtTime(0, t)
-    gain.gain.linearRampToValueAtTime(0.2, t + 0.01)
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1)
+      // 破裂音としての短いエンベロープ
+      gain.gain.setValueAtTime(0, t)
+      gain.gain.linearRampToValueAtTime(0.15 + Math.random() * 0.1, t + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15)
 
-    osc.connect(gain)
-    gain.connect(lowpass) 
-    gain.connect(delayNode) 
+      osc.connect(gain)
+      gain.connect(lowpass) 
+      gain.connect(delayNode) 
 
-    osc.start(t)
-    osc.stop(t + 0.15)
+      osc.start(t)
+      osc.stop(t + 0.2)
+    }
   }, [])
 
   const playWhale = useCallback(() => {

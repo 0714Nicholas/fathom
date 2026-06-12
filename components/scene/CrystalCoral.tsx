@@ -9,8 +9,10 @@ import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
 export function CrystalCoral({ 
   progress = 0, 
   windSpeed = 0,
+  clouds = 0,
+  rainAmount = 0,
   resonancePulse = 0,
-  temp = 15 // デフォルト15度
+  temp = 15
 }: DeepSeaCanvasProps) {
   const outerMatRef = useRef<any>(null)
   const innerMatRef = useRef<any>(null)
@@ -19,24 +21,37 @@ export function CrystalCoral({
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
 
-  // 🚨 気温（temp）からコアの色を計算（-10℃〜35℃の範囲でマッピング）
+  // 🚨 1. 気温（temp）による「明確な色変化」
+  // 寒極(-10℃) 〜 猛暑(35℃)
+  const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
+  
   const coreColors = useMemo(() => {
-    const t = Math.max(-10, Math.min(35, temp))
-    const ratio = (t + 10) / 45 // 0.0(極寒) 〜 1.0(猛暑)
-    
-    // 寒い：深く鋭い氷の青 / 暑い：生命力を感じるエメラルドグリーン
-    const coldEmissive = new THREE.Color('#0044ff')
-    const hotEmissive = new THREE.Color('#00ffaa')
-    
-    // ベースの色味（白飛び防止用）
-    const coldBase = new THREE.Color('#0000cc')
-    const hotBase = new THREE.Color('#006644')
+    // 寒い＝深いインディゴブルー / 暑い＝熱水噴出孔のようなエメラルド
+    const coldEmissive = new THREE.Color('#0022cc')
+    const hotEmissive = new THREE.Color('#00cc66')
+    const coldBase = new THREE.Color('#000088')
+    const hotBase = new THREE.Color('#004422')
 
     return {
-      emissive: new THREE.Color().lerpColors(coldEmissive, hotEmissive, ratio),
-      base: new THREE.Color().lerpColors(coldBase, hotBase, ratio)
+      emissive: new THREE.Color().lerpColors(coldEmissive, hotEmissive, colorRatio),
+      base: new THREE.Color().lerpColors(coldBase, hotBase, colorRatio)
     }
-  }, [temp])
+  }, [colorRatio])
+
+  // 外側のガラス自体も、温度によって冷たい色/暖かい色にシフトさせる
+  const outerColors = useMemo(() => {
+    const coldAtten = new THREE.Color('#aaccff')
+    const hotAtten = new THREE.Color('#aaffdd')
+    return new THREE.Color().lerpColors(coldAtten, hotAtten, colorRatio)
+  }, [colorRatio])
+
+  // 🚨 2. 雲量（clouds）による「環境光の暗さ」
+  // 晴れ(0) = 明るい / 曇り(100) = 暗い
+  const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.5, 0.4, clouds / 100), [clouds])
+
+  // 🚨 3. 雨量（rainAmount）による「水の濁り（レンズの曇り）」
+  // 雨が降っていると、ガラスのroughness（粗さ）が上がり、中が濁って見える
+  const waterMurkiness = useMemo(() => THREE.MathUtils.lerp(0.01, 0.25, Math.min(rainAmount / 5, 1)), [rainAmount])
 
   useFrame((state, delta) => {
     if (resonancePulse > prevPulse.current) {
@@ -48,28 +63,28 @@ export function CrystalCoral({
     const time = state.clock.elapsedTime
 
     if (innerMatRef.current) {
-      const baseGlow = 7.0 + Math.sin(time * 3.0) * 1.5 
-      const flashGlow = flashEnergy.current * 8.0 
+      const baseGlow = 8.0 + Math.sin(time * 3.0) * 1.5 
+      const flashGlow = flashEnergy.current * 10.0 
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
-      // 🚨 水圧（progress）が深いほど、コアのプラズマが強く圧縮され激しく歪む
       const pressureDistortion = progress * 0.3
       innerMatRef.current.distort = 0.5 + pressureDistortion + flashEnergy.current * 0.4
       innerMatRef.current.speed = 8.0 + flashEnergy.current * 6.0
     }
 
     if (outerMatRef.current) {
-      const baseAtten = new THREE.Color('#cce6ff') 
+      // 普段は温度に紐づいた色、共鳴時だけ白くフラッシュ
       const flashAtten = new THREE.Color('#ffffff') 
-      outerMatRef.current.attenuationColor.lerpColors(baseAtten, flashAtten, flashEnergy.current)
+      outerMatRef.current.attenuationColor.lerpColors(outerColors, flashAtten, flashEnergy.current)
 
-      const baseDistortion = 0.5 + (windSpeed * 0.04)
+      // 🚨 風（windSpeed）が強いほど、外殻が激しく波打つ
+      const baseDistortion = 0.4 + (windSpeed * 0.06)
       outerMatRef.current.distortion = THREE.MathUtils.lerp(
         outerMatRef.current.distortion,
         baseDistortion + flashEnergy.current * 1.5,
         delta * 3
       )
-      outerMatRef.current.temporalDistortion = 0.3 + flashEnergy.current * 1.5
+      outerMatRef.current.temporalDistortion = 0.2 + (windSpeed * 0.05) + flashEnergy.current * 1.5
     }
 
     if (groupRef.current) {
@@ -80,7 +95,6 @@ export function CrystalCoral({
       const wobbleY = 1 + Math.cos(time * 0.8) * 0.025 + Math.cos(time * 1.4) * 0.015
       const wobbleZ = 1 + Math.sin(time * 0.9) * 0.025 + Math.cos(time * 1.5) * 0.015
 
-      // 🚨 深海に行くほど、水圧で全体がミリ単位で圧縮される（0.55 -> 0.52）
       const baseScale = 0.55 - (progress * 0.03)
       
       const flashExpand = flashEnergy.current * 0.15
@@ -97,18 +111,18 @@ export function CrystalCoral({
 
   return (
     <group ref={groupRef} scale={0.55} position={[0, -0.2, 0]}>
-      <ambientLight intensity={0.15} />
-      <directionalLight position={[5, 5, 2]} intensity={1.0} color="#8fd8ff" />
+      {/* 🚨 雲量によって光の強さが変わる */}
+      <ambientLight intensity={lightIntensity * 0.2} />
+      <directionalLight position={[5, 5, 2]} intensity={lightIntensity} color="#8fd8ff" />
       <Environment preset="night" />
 
-      {/* 内なるコア：気温によって色が変化 */}
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
         <Sphere args={[0.4, 64, 64]}> 
           <MeshDistortMaterial
             ref={innerMatRef}
             color={coreColors.base}
             emissive={coreColors.emissive} 
-            emissiveIntensity={7.0}
+            emissiveIntensity={8.0}
             toneMapped={false}
             distort={0.6} 
             speed={8}     
@@ -116,21 +130,20 @@ export function CrystalCoral({
         </Sphere>
       </Float>
 
-      {/* 外殻 */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
           thickness={1.5}             
-          roughness={0.02}            
+          roughness={waterMurkiness} // 🚨 雨が降ると濁る        
           transmission={1}            
           ior={1.33}                  
           chromaticAberration={0.06}  
           distortion={0.5}            
           temporalDistortion={0.3}    
           color="#ffffff"             
-          attenuationColor="#cce6ff"  
-          attenuationDistance={3.0}   
-          envMapIntensity={1.2}       
+          attenuationColor={outerColors} // 🚨 外殻の色も温度でシフトさせる  
+          attenuationDistance={2.5}   
+          envMapIntensity={1.0}       
         />
       </Sphere>
     </group>

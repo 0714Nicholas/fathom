@@ -5,10 +5,13 @@ import { CrystalCoral } from './CrystalCoral'
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 
-// 🚨 修正：isSuspended（一時停止中かどうか）を受け取る
-function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = false }) {
+function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = false, descent = 1 }) {
   const pointsRef = useRef<THREE.Points>(null)
   const materialRef = useRef<THREE.ShaderMaterial>(null)
+  
+  // 速度が変化しても宇宙全体がワープしないように、Y座標の移動距離をCPU側で累積（アキュムレート）する
+  const scrollYRef = useRef(0)
+  const currentSpeedRef = useRef(1.5) 
   
   const [positions, scales, speeds] = useMemo(() => {
     const pos = new Float32Array(count * 3)
@@ -31,7 +34,7 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
     uWind: { value: 0 },
     uDpr: { value: dpr },
     uProgress: { value: 0 },
-    uSuspended: { value: 0 } // 🚨 新規：進行方向をブレンドするための変数
+    uScrollY: { value: 0 } 
   }), [dpr])
 
   useFrame((state, delta) => {
@@ -40,13 +43,24 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
       materialRef.current.uniforms.uWind.value = windSpeed
       materialRef.current.uniforms.uProgress.value = progress
 
-      // 🚨 スムーズに進行方向と速度を切り替える（急にガクッと向きを変えないため）
-      const targetSuspended = isSuspended ? 1.0 : 0.0
-      materialRef.current.uniforms.uSuspended.value = THREE.MathUtils.lerp(
-        materialRef.current.uniforms.uSuspended.value,
-        targetSuspended,
-        delta * 2.0
+      // プレイヤーの「状態」に合わせて相対的な雪の速度を決定
+      let targetSpeed = -0.15; // 状態2：漂流中（基本は下にゆっくり降る）
+      
+      if (isSuspended) {
+        targetSpeed = -0.3; // 状態3：完全停止（さらに少し早く雪が降る）
+      }
+      if (descent < 1.0) {
+        targetSpeed = 1.5; // 状態1：ダイブ中（雪は上へ飛び去る）
+      }
+
+      currentSpeedRef.current = THREE.MathUtils.lerp(
+        currentSpeedRef.current,
+        targetSpeed,
+        delta * 1.5
       )
+
+      scrollYRef.current += currentSpeedRef.current * delta
+      materialRef.current.uniforms.uScrollY.value = scrollYRef.current
     }
   })
 
@@ -70,26 +84,29 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
           uniform float uWind;
           uniform float uDpr;
           uniform float uProgress;
-          uniform float uSuspended;
+          uniform float uScrollY;
           varying float vAlpha;
-          varying float vY; // 🚨 新規：Y座標をフラグメントシェーダーに渡す
+          varying float vY;
 
           void main() {
             vec3 pos = position;
-            
             float depthSpeedMult = 1.0 - (uProgress * 0.8);
             
-            // 🚨 潜水時は上(0.8)へ、Suspend(停止)時は本来の雪のようにゆっくり下(-0.3)へ
-            float currentSpeed = mix(0.8, -0.3, uSuspended);
+            // Y軸：アキュムレータでワープを防ぐ
+            pos.y += uScrollY * aSpeed * depthSpeedMult;
             
-            pos.y += uTime * aSpeed * currentSpeed * depthSpeedMult;
-            pos.x += sin(uTime * aSpeed * 12.0 + pos.y * 3.0) * 0.15 * depthSpeedMult;
+            // 🚨 修正：風速×時間で、常に横へ流されるようにする
+            float windDrift = uTime * uWind * aSpeed * 0.05;
+            pos.x += windDrift + sin(uTime * aSpeed * 12.0 + pos.y * 3.0) * 0.15 * depthSpeedMult;
+            
+            // Z軸：奥行きの揺らぎ
             pos.y += sin(uTime * aSpeed * 8.0 + pos.x * 2.0) * 0.1 * depthSpeedMult;
 
+            // 画面外に出た雪をループさせる
             pos.y = mod(pos.y + 10.0, 20.0) - 10.0;
             pos.x = mod(pos.x + 10.0, 20.0) - 10.0;
             
-            vY = pos.y; // 🚨 Y座標を保存
+            vY = pos.y;
             
             vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
             gl_Position = projectionMatrix * mvPosition;
@@ -101,7 +118,7 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
         `}
         fragmentShader={`
           varying float vAlpha;
-          varying float vY; // 🚨 新規
+          varying float vY;
           uniform float uProgress;
           
           void main() {
@@ -111,8 +128,7 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
             
             float depthDim = 1.0 - (uProgress * 0.7);
             
-            // 🚨 新規：上下に消えていくグラデーション（Yが±10に近づくと透明になる）
-            // これにより、上に飛び去る時にプツッと消えず、暗闇にフワッと溶けます
+            // 上下にフワッと消えるグラデーション
             float yFadeIn = smoothstep(-10.0, -6.0, vY);
             float yFadeOut = 1.0 - smoothstep(6.0, 10.0, vY);
             float yFade = yFadeIn * yFadeOut;
@@ -136,7 +152,7 @@ export interface DeepSeaCanvasProps {
   heatmapPulse: any
   descent: number
   temp?: number
-  isSuspended?: boolean // 🚨 追加
+  isSuspended?: boolean
 }
 
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
@@ -151,6 +167,7 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
           count={1200} 
           progress={props.progress} 
           isSuspended={props.isSuspended} 
+          descent={props.descent}
         />
         <CrystalCoral {...props} />
       </Canvas>
