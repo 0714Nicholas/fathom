@@ -18,7 +18,7 @@ import { useFathomMemory } from '@/hooks/useFathomMemory'
 
 const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
-export type FathomMode = 'pomodoro' | 'meditate' | 'focus' | 'sleep'
+export type FathomMode = 'meditate' | 'focus' | 'sleep'
 
 const hudStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap');
@@ -184,11 +184,11 @@ function visibilityClass(
 }
 
 function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m: FathomMode) => void }) {
+  // 🚨 修正：Sleepモードのラベルを60mに変更
   const modes: { value: FathomMode; label: string }[] = [
-    { value: 'pomodoro', label: 'Pomodoro (25m+5m)' },
     { value: 'meditate', label: 'Meditate (25m+5m)' },
     { value: 'focus', label: 'Focus (90m)' },
-    { value: 'sleep', label: 'Sleep (120m)' },
+    { value: 'sleep', label: 'Sleep (60m)' },
   ]
   return (
     <div style={{ display: 'flex', gap: 12, marginBottom: 32, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -321,7 +321,6 @@ export function FathomApp() {
   const [progress, setProgress] = useState(0)
   const [fathomMode, setFathomMode] = useState<FathomMode>('focus')
   
-  // 🚨 新規状態：ダイブのフェーズ管理
   const [sessionPhase, setSessionPhase] = useState<'diving' | 'interval' | 'completed'>('diving')
   const sessionPhaseRef = useRef<'diving' | 'interval' | 'completed'>('diving')
   
@@ -363,7 +362,6 @@ export function FathomApp() {
 
   const driftElapsedRef = useRef(0)
 
-  // 🚨 タイマーロジックの大改修（25分+5分の浮上システムの統合）
   useEffect(() => {
     if (!settled || !audio.running) return
 
@@ -373,7 +371,8 @@ export function FathomApp() {
     const WORK_MS = 25 * 60 * 1000 // 25分
     const BREAK_MS = 5 * 60 * 1000 // 5分
     const FOCUS_MS = 90 * 60 * 1000 // 90分
-    const SLEEP_MS = 120 * 60 * 1000 // 120分
+    // 🚨 修正：Sleepモードの到達時間を60分（ミリ秒）に変更
+    const SLEEP_MS = 60 * 60 * 1000 
 
     const timer = window.setInterval(() => {
       const now = Date.now()
@@ -384,8 +383,8 @@ export function FathomApp() {
       let newPhase: 'diving' | 'interval' | 'completed' = 'diving'
       let currentDepth = INITIAL_DEPTH
 
-      // ポモドーロと瞑想：25分潜行 ＋ 5分浮上
-      if (fathomMode === 'pomodoro' || fathomMode === 'meditate') {
+      // Meditate：25分潜行 ＋ 5分浮上
+      if (fathomMode === 'meditate') {
         if (driftElapsedRef.current < WORK_MS) {
           newPhase = 'diving'
           currentDepth = INITIAL_DEPTH + (1.0 - INITIAL_DEPTH) * (driftElapsedRef.current / WORK_MS)
@@ -398,7 +397,7 @@ export function FathomApp() {
           currentDepth = INITIAL_DEPTH
         }
       } else {
-        // フォーカスと睡眠：直線で底へ
+        // FocusとSleep：直線で底へ
         const DURATION = fathomMode === 'focus' ? FOCUS_MS : SLEEP_MS
         if (driftElapsedRef.current < DURATION) {
           newPhase = 'diving'
@@ -411,7 +410,6 @@ export function FathomApp() {
 
       setProgress(currentDepth)
       
-      // フェーズの切り替わりを検知
       if (sessionPhaseRef.current !== newPhase) {
         sessionPhaseRef.current = newPhase
         setSessionPhase(newPhase)
@@ -426,18 +424,16 @@ export function FathomApp() {
     setResonancePulse((p) => p + 1)
   }, [])
 
-  // 🚨 フェーズ切り替え時の音響演出（澄んだソナー音）
   useEffect(() => {
     if (sessionPhase === 'interval') {
       audio.triggerFrictionImpulse({ intensity: 0.6, durationMs: 300, color: 0.1 })
       triggerResonance(0.8)
-    } else if (sessionPhase === 'completed' && (fathomMode === 'pomodoro' || fathomMode === 'meditate')) {
+    } else if (sessionPhase === 'completed' && fathomMode === 'meditate') {
       audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 500, color: 0.5 })
       triggerResonance(0.4)
     }
   }, [sessionPhase, audio, triggerResonance, fathomMode])
 
-  // 🚨 次のサイクルへ潜る関数
   const handleDiveAgain = useCallback(() => {
     driftElapsedRef.current = 0
     sessionPhaseRef.current = 'diving'
@@ -446,7 +442,6 @@ export function FathomApp() {
     audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 150, color: 0.8 })
     triggerResonance(0.3)
   }, [audio, triggerResonance])
-
 
   const handleRemoteResonance = useCallback((payload: ResonancePulsePayload) => {
     const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
@@ -583,7 +578,6 @@ export function FathomApp() {
           </div>
         ) : null}
 
-        {/* 🚨 追加：減圧中（浮上中）の専用メッセージ */}
         {hasDescended && settled && sessionPhase === 'interval' ? (
           <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease' }}>
             <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(143,216,255,0.85)' }}>
@@ -593,8 +587,7 @@ export function FathomApp() {
           </div>
         ) : null}
 
-        {/* 🚨 追加：水面到達時（サイクル完了）の専用メッセージとボタン */}
-        {hasDescended && settled && sessionPhase === 'completed' && (fathomMode === 'pomodoro' || fathomMode === 'meditate') ? (
+        {hasDescended && settled && sessionPhase === 'completed' && fathomMode === 'meditate' ? (
           <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', pointerEvents: 'auto' }}>
             <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)', marginBottom: 32 }}>
               水面に到達しました。<br/>息を整え、次の深淵へ。
@@ -615,7 +608,6 @@ export function FathomApp() {
             </div>
 
             <div className={`hud-bottom-left ${visibilityClass(settled, 2)}`}>
-              {/* 🚨 修正：フェーズによって表記を変更 */}
               <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>
                 {sessionPhase === 'interval' ? '[ DECOMPRESSION ]' : '[ ABYSS ]'}
               </div>
@@ -723,7 +715,6 @@ export function FathomApp() {
                 ) : null}
               </div>
 
-              {/* 🚨 修正：インターバル（減圧）中や完了時は入力を制限する */}
               {sessionPhase === 'diving' ? (
                 <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
                   <textarea
