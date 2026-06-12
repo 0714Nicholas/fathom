@@ -5,11 +5,11 @@ import { CrystalCoral } from './CrystalCoral'
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 
-function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = false, descent = 1 }) {
+// 🚨 修正：sessionPhase を受け取るように追加
+function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = false, descent = 1, sessionPhase = 'diving' }) {
   const pointsRef = useRef<THREE.Points>(null)
   const materialRef = useRef<THREE.ShaderMaterial>(null)
   
-  // 速度が変化しても宇宙全体がワープしないように、Y座標の移動距離をCPU側で累積（アキュムレート）する
   const scrollYRef = useRef(0)
   const currentSpeedRef = useRef(1.5) 
   
@@ -43,20 +43,23 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
       materialRef.current.uniforms.uWind.value = windSpeed
       materialRef.current.uniforms.uProgress.value = progress
 
-      // プレイヤーの「状態」に合わせて相対的な雪の速度を決定
-      let targetSpeed = -0.15; // 状態2：漂流中（基本は下にゆっくり降る）
-      
+      // 🚨 修正：フェーズに合わせた物理的な上下移動
+      let targetSpeed = -0.15; // デフォルト：漂流（完了後）
+
       if (isSuspended) {
-        targetSpeed = -0.3; // 状態3：完全停止（さらに少し早く雪が降る）
-      }
-      if (descent < 1.0) {
-        targetSpeed = 1.5; // 状態1：ダイブ中（雪は上へ飛び去る）
+        targetSpeed = -0.05; // サスペンド中はほぼ停止
+      } else if (descent < 1.0) {
+        targetSpeed = 2.0; // 最初の8秒のダイブ（雪が猛スピードで上に飛ぶ）
+      } else if (sessionPhase === 'diving') {
+        targetSpeed = 0.4; // 潜行中（雪がゆっくり上に飛ぶ＝自分が沈んでいる）
+      } else if (sessionPhase === 'interval') {
+        targetSpeed = -1.5; // 減圧・浮上中（雪が猛スピードで下に飛ぶ＝自分が浮上している）
       }
 
       currentSpeedRef.current = THREE.MathUtils.lerp(
         currentSpeedRef.current,
         targetSpeed,
-        delta * 1.5
+        delta * 2.0
       )
 
       scrollYRef.current += currentSpeedRef.current * delta
@@ -90,13 +93,14 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
 
           void main() {
             vec3 pos = position;
-            float depthSpeedMult = 1.0 - (uProgress * 0.8);
+            // 深度が深くなっても風の横揺れはゼロにはしない (最低0.4倍)
+            float depthSpeedMult = 1.0 - (uProgress * 0.6);
             
-            // Y軸：アキュムレータでワープを防ぐ
-            pos.y += uScrollY * aSpeed * depthSpeedMult;
+            // Y軸：アキュムレータで上下の移動を制御
+            pos.y += uScrollY * aSpeed * 30.0; // スピードの係数を上げて動きをはっきりさせる
             
-            // 風速×時間で、常に横へ流されるようにする
-            float windDrift = uTime * uWind * aSpeed * 0.05;
+            // 🚨 修正：風速の影響を強くして、都市の風をしっかり視覚化する
+            float windDrift = uTime * uWind * aSpeed * 0.4;
             pos.x += windDrift + sin(uTime * aSpeed * 12.0 + pos.y * 3.0) * 0.15 * depthSpeedMult;
             
             // Z軸：奥行きの揺らぎ
@@ -128,7 +132,6 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
             
             float depthDim = 1.0 - (uProgress * 0.7);
             
-            // 上下にフワッと消えるグラデーション
             float yFadeIn = smoothstep(-10.0, -6.0, vY);
             float yFadeOut = 1.0 - smoothstep(6.0, 10.0, vY);
             float yFade = yFadeIn * yFadeOut;
@@ -141,7 +144,7 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
   )
 }
 
-// 🚨 追加されたProps（diveTimeMs, releaseCount）
+// 🚨 修正：sessionPhase を Props に追加
 export interface DeepSeaCanvasProps {
   progress: number
   windSpeed: number
@@ -156,6 +159,7 @@ export interface DeepSeaCanvasProps {
   isSuspended?: boolean
   diveTimeMs?: number
   releaseCount?: number
+  sessionPhase?: 'diving' | 'interval' | 'completed' // 🚨 追加
 }
 
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
@@ -171,8 +175,8 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
           progress={props.progress} 
           isSuspended={props.isSuspended} 
           descent={props.descent}
+          sessionPhase={props.sessionPhase} // 🚨 追加
         />
-        {/* CrystalCoralにPropsをすべて渡す */}
         <CrystalCoral {...props} />
       </Canvas>
     </div>

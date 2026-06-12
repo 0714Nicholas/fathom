@@ -184,7 +184,6 @@ function visibilityClass(
 }
 
 function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m: FathomMode) => void }) {
-  // 🚨 修正：Sleepモードのラベルを60mに変更
   const modes: { value: FathomMode; label: string }[] = [
     { value: 'meditate', label: 'Meditate (25m+5m)' },
     { value: 'focus', label: 'Focus (90m)' },
@@ -371,8 +370,7 @@ export function FathomApp() {
     const WORK_MS = 25 * 60 * 1000 // 25分
     const BREAK_MS = 5 * 60 * 1000 // 5分
     const FOCUS_MS = 90 * 60 * 1000 // 90分
-    // 🚨 修正：Sleepモードの到達時間を60分（ミリ秒）に変更
-    const SLEEP_MS = 60 * 60 * 1000 
+    const SLEEP_MS = 60 * 60 * 1000 // 60分
 
     const timer = window.setInterval(() => {
       const now = Date.now()
@@ -383,7 +381,6 @@ export function FathomApp() {
       let newPhase: 'diving' | 'interval' | 'completed' = 'diving'
       let currentDepth = INITIAL_DEPTH
 
-      // Meditate：25分潜行 ＋ 5分浮上
       if (fathomMode === 'meditate') {
         if (driftElapsedRef.current < WORK_MS) {
           newPhase = 'diving'
@@ -397,7 +394,6 @@ export function FathomApp() {
           currentDepth = INITIAL_DEPTH
         }
       } else {
-        // FocusとSleep：直線で底へ
         const DURATION = fathomMode === 'focus' ? FOCUS_MS : SLEEP_MS
         if (driftElapsedRef.current < DURATION) {
           newPhase = 'diving'
@@ -555,6 +551,7 @@ export function FathomApp() {
         isSuspended={!audio.running}
         diveTimeMs={diveTimeMs}     
         releaseCount={releaseCount} 
+        sessionPhase={sessionPhase} // 🚨 確実に追加！
       />
 
       <div className="scene-vignette" />
