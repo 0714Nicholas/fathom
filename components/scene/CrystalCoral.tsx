@@ -25,11 +25,11 @@ export function CrystalCoral({
   const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
   
   const coreColors = useMemo(() => {
-    // 🚨 修正：色をより濃く、鮮やかに設定
-    const coldEmissive = new THREE.Color('#0033ff') // 冴え渡るブルー
-    const hotEmissive = new THREE.Color('#00ff55')  // 強烈なエメラルドグリーン
-    const coldBase = new THREE.Color('#0000cc')
-    const hotBase = new THREE.Color('#008822')
+    // 🚨 修正：黒く沈まないように、ベースの色に明るさと彩度を持たせる
+    const coldEmissive = new THREE.Color('#0066ff') // 冴え渡るアクアブルー
+    const hotEmissive = new THREE.Color('#00ffa5')  // 鮮やかなエメラルド
+    const coldBase = new THREE.Color('#0044cc')
+    const hotBase = new THREE.Color('#00aa55')
 
     return {
       emissive: new THREE.Color().lerpColors(coldEmissive, hotEmissive, colorRatio),
@@ -38,14 +38,15 @@ export function CrystalCoral({
   }, [colorRatio])
 
   const outerColors = useMemo(() => {
-    // 🚨 修正：外側のガラスの透過色も、温度に合わせて鮮やかに
-    const coldAtten = new THREE.Color('#4499ff')
-    const hotAtten = new THREE.Color('#33ff99')
+    // 🚨 修正：ガラス自体の透過色も、濁らないように明るく澄んだ色へ
+    const coldAtten = new THREE.Color('#aaddff')
+    const hotAtten = new THREE.Color('#aaffdd')
     return new THREE.Color().lerpColors(coldAtten, hotAtten, colorRatio)
   }, [colorRatio])
 
   const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.5, 0.4, clouds / 100), [clouds])
-  const waterMurkiness = useMemo(() => THREE.MathUtils.lerp(0.01, 0.25, Math.min(rainAmount / 5, 1)), [rainAmount])
+  // 最低限の粗さ（0.05）を残して、ガラスの表面を少しだけすりガラス状にする
+  const waterMurkiness = useMemo(() => Math.max(0.05, THREE.MathUtils.lerp(0.01, 0.25, Math.min(rainAmount / 5, 1))), [rainAmount])
 
   useFrame((state, delta) => {
     if (resonancePulse > prevPulse.current) {
@@ -57,9 +58,9 @@ export function CrystalCoral({
     const time = state.clock.elapsedTime
 
     if (innerMatRef.current) {
-      // 🚨 修正：ベースの発光を 8.0 → 4.0 に下げて白飛びを防ぎ、色の濃さを引き出す
-      const baseGlow = 4.0 + Math.sin(time * 3.0) * 1.5 
-      const flashGlow = flashEnergy.current * 15.0 // フラッシュ時は強烈に光る
+      // 🚨 修正：内側からの発光を少し戻し（4.0 → 6.0）、黒ずみを光で飛ばす
+      const baseGlow = 6.0 + Math.sin(time * 3.0) * 1.5 
+      const flashGlow = flashEnergy.current * 10.0 
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
       const pressureDistortion = progress * 0.3
@@ -114,7 +115,7 @@ export function CrystalCoral({
             ref={innerMatRef}
             color={coreColors.base}
             emissive={coreColors.emissive} 
-            emissiveIntensity={4.0} // 🚨 ここも 4.0 に下げる
+            emissiveIntensity={6.0} 
             toneMapped={false}
             distort={0.6} 
             speed={8}     
@@ -125,17 +126,17 @@ export function CrystalCoral({
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={1.5}             
+          thickness={2.0}             
           roughness={waterMurkiness}      
           transmission={1}            
-          ior={1.33}                  
-          chromaticAberration={0.06}  
+          ior={1.15} // 🚨 修正：屈折率を1.33から1.15に下げて、背景の黒を吸い込むのを防ぐ
+          chromaticAberration={0.04}  
           distortion={0.5}            
           temporalDistortion={0.3}    
           color="#ffffff"             
           attenuationColor={outerColors} 
-          attenuationDistance={2.0} // 🚨 距離を縮めて色を濃く出す  
-          envMapIntensity={1.0}       
+          attenuationDistance={4.0} // 🚨 修正：距離を伸ばして、黒ずみ（過剰な減衰）を防ぐ  
+          envMapIntensity={1.5}       
         />
       </Sphere>
     </group>
