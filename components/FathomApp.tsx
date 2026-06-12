@@ -14,16 +14,15 @@ import { useWeather } from '@/hooks/useWeather'
 import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
 import { useFathomDescent } from '@/hooks/useFathomDescent'
 import { generateFathomCoordinate, isValidFathomCoordinate, formatCoordinateForSystem } from '@/lib/identity/coordinates'
+import { useFathomMemory } from '@/hooks/useFathomMemory' // 🚨 新規フックをインポート
 
 const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'focus' | 'meditate' | 'sleep'
 
 const hudStyles = `
-  /* 🚨 追加：明朝体のWebフォントを読み込み */
   @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap');
 
-  /* 🚨 追加：人間の思考（日本語）を表す明朝体クラス */
   .font-mincho {
     font-family: 'Shippori Mincho', "Noto Serif JP", "Yu Mincho", "MS Mincho", serif;
     font-weight: 400;
@@ -63,7 +62,6 @@ const hudStyles = `
   .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; display: flex; flex-direction: column; align-items: flex-end; }
   .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
   
-  /* 🚨 変更：入力欄を明朝体に。文字間隔を開けて詩的な佇まいに */
   .hud-textarea { 
     flex: 1; 
     background: transparent; 
@@ -231,7 +229,6 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
     return (
       <div className="descend-stage" aria-hidden={isLeaving}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
-          {/* 🚨 変更：明朝体クラスを追加 */}
           <div className="descend-caption font-mincho" style={{ fontSize: 14 }}>
             あなたの水底の座標（3つの単語）を入力してください。
           </div>
@@ -357,6 +354,9 @@ export function FathomApp() {
 
   const audio = useDeepSeaAudio({ enabled: true, progress, windSpeed, rainAmount, descent })
   
+  // 🚨 記憶システムのフックを呼び出し
+  const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
+
   const driftElapsedRef = useRef(0)
 
   useEffect(() => {
@@ -445,13 +445,14 @@ export function FathomApp() {
     triggerResonance(0.26)
     
     await sendLetter(trimmed)
+    incrementRelease() // 🚨 思考を沈めたら放流回数をインクリメント
 
     setTimeout(() => {
       setIsDissolving(true)
       setTimeout(() => setComposedText(null), 4000)
     }, 12000)
 
-  }, [canSend, draft, sendLetter, triggerResonance])
+  }, [canSend, draft, sendLetter, triggerResonance, incrementRelease])
 
   const handleBury = useCallback(async (letterId: string) => {
     if (await buryOwnLetter(letterId)) {
@@ -488,6 +489,7 @@ export function FathomApp() {
     <main className="scene-root" style={{ background: '#02050a' }}>
       <style>{hudStyles}</style>
 
+      {/* 🚨 追加：蓄積された記憶のデータをキャンバスに渡す */}
       <DeepSeaCanvas
         progress={progress}
         windSpeed={windSpeed}
@@ -500,6 +502,8 @@ export function FathomApp() {
         descent={descent}
         temp={data?.temp ?? undefined}
         isSuspended={!audio.running}
+        diveTimeMs={diveTimeMs}     
+        releaseCount={releaseCount} 
       />
 
       <div className="scene-vignette" />
@@ -514,7 +518,6 @@ export function FathomApp() {
 
       <div className="hud-overlay" style={{ position: 'absolute', inset: 0, zIndex: 50, opacity: uiOpacity, transition: 'opacity 2s linear', pointerEvents: 'none' }}>
         
-        {/* 🚨 変更：潜行中のトランジション文言も明朝体に */}
         {hasDescended && !settled ? (
           <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: phase === 'descending' ? 0.8 : 0, transition: 'opacity 3s ease' }}>
             <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)' }}>
@@ -538,8 +541,13 @@ export function FathomApp() {
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
               <div style={{ marginBottom: 12 }}>Pressure: {currentPressure} atm</div>
               <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
-              <div style={{ marginBottom: 12 }}>{selfId.replace(/-/g, ' ')}</div>
-              <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase' }}>save as memory</button>
+              <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
+              <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>
+              
+              {/* 🚨 追加：記憶（潜水時間と放流回数）の表示 */}
+              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ MEMORY ]</div>
+              <div style={{ marginBottom: 4 }}>Age: {Math.floor(diveTimeMs / 60000)} fth</div>
+              <div style={{ marginBottom: 4 }}>Releases: {releaseCount}</div>
             </div>
 
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
@@ -561,7 +569,6 @@ export function FathomApp() {
               </div>
 
               {channelMode === 'global' ? (
-                /* 🚨 変更：GLOBALの受信ステータス。英語（Monospace）と日本語（Mincho）の対比 */
                 <div style={{ textAlign: 'right', marginTop: 16 }}>
                   <div style={{ opacity: 0.5, fontSize: '10px', letterSpacing: '0.1em', fontFamily: 'monospace', marginBottom: 4 }}>
                     listening to the anonymous tide...
@@ -572,7 +579,6 @@ export function FathomApp() {
                 </div>
               ) : (
                 <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                  {/* RESONANCE チャンネル：英語のまま（システム入力なので） */}
                   <input
                     type="text"
                     placeholder="enter 3-word coordinate"
@@ -638,7 +644,6 @@ export function FathomApp() {
               </div>
 
               <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                {/* 🚨 入力欄は CSS (.hud-textarea) 側で明朝体に設定されています */}
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}

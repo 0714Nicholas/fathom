@@ -95,7 +95,7 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
             // Y軸：アキュムレータでワープを防ぐ
             pos.y += uScrollY * aSpeed * depthSpeedMult;
             
-            // 🚨 修正：風速×時間で、常に横へ流されるようにする
+            // 風速×時間で、常に横へ流されるようにする
             float windDrift = uTime * uWind * aSpeed * 0.05;
             pos.x += windDrift + sin(uTime * aSpeed * 12.0 + pos.y * 3.0) * 0.15 * depthSpeedMult;
             
@@ -141,6 +141,7 @@ function MarineSnow({ count = 1200, windSpeed = 0, progress = 0, isSuspended = f
   )
 }
 
+// 🚨 追加されたProps（diveTimeMs, releaseCount）
 export interface DeepSeaCanvasProps {
   progress: number
   windSpeed: number
@@ -153,6 +154,8 @@ export interface DeepSeaCanvasProps {
   descent: number
   temp?: number
   isSuspended?: boolean
+  diveTimeMs?: number
+  releaseCount?: number
 }
 
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
@@ -169,6 +172,7 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
           isSuspended={props.isSuspended} 
           descent={props.descent}
         />
+        {/* CrystalCoralにPropsをすべて渡す */}
         <CrystalCoral {...props} />
       </Canvas>
     </div>
