@@ -14,7 +14,7 @@ import { useWeather } from '@/hooks/useWeather'
 import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
 import { useFathomDescent } from '@/hooks/useFathomDescent'
 import { generateFathomCoordinate, isValidFathomCoordinate, formatCoordinateForSystem } from '@/lib/identity/coordinates'
-import { useFathomMemory } from '@/hooks/useFathomMemory' // 🚨 新規フックをインポート
+import { useFathomMemory } from '@/hooks/useFathomMemory'
 
 const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
@@ -221,7 +221,7 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
 function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCity, isLoading, onSearch }: any) {
   const [inputVal, setInputVal] = useState('')
   const [coordVal, setCoordVal] = useState('')
-  const [mode, setMode] = useState<FathomMode>('meditate')
+  const [mode, setMode] = useState<FathomMode>('focus')
   const [viewState, setViewState] = useState<'new' | 'return'>('new')
   const [coordError, setCoordError] = useState(false)
 
@@ -318,7 +318,7 @@ export function FathomApp() {
   const [city, setCity] = useState('')
   const [draft, setDraft] = useState('')
   const [progress, setProgress] = useState(0)
-  const [fathomMode, setFathomMode] = useState<FathomMode>('meditate')
+  const [fathomMode, setFathomMode] = useState<FathomMode>('focus')
   
   const [composeKey, setComposeKey] = useState(0)
   const [resonancePulse, setResonancePulse] = useState(0)
@@ -354,7 +354,6 @@ export function FathomApp() {
 
   const audio = useDeepSeaAudio({ enabled: true, progress, windSpeed, rainAmount, descent })
   
-  // 🚨 記憶システムのフックを呼び出し
   const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
 
   const driftElapsedRef = useRef(0)
@@ -371,15 +370,21 @@ export function FathomApp() {
 
     let lastTick = Date.now()
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
-    const TARGET_DEPTH = fathomMode === 'focus' ? 0.55 : 1.0
-    const TIME_CONSTANT = fathomMode === 'sleep' ? 45 * 60 * 1000 : fathomMode === 'focus' ? 60 * 60 * 1000 : 2 * 60 * 60 * 1000
+    
+    // 🚨 修正: 確実に100%に到達するタイマー設計
+    // Focus = 90分, Meditate = 60分, Sleep = 120分
+    const DURATION_MS = fathomMode === 'focus' ? 90 * 60 * 1000 : fathomMode === 'meditate' ? 60 * 60 * 1000 : 120 * 60 * 1000
 
     const timer = window.setInterval(() => {
       const now = Date.now()
       const delta = now - lastTick
       lastTick = now
       driftElapsedRef.current += delta
-      const currentDepth = INITIAL_DEPTH + (TARGET_DEPTH - INITIAL_DEPTH) * (1 - Math.exp(-driftElapsedRef.current / TIME_CONSTANT))
+
+      // 🚨 直線的（Linear）に進行し、指定時間でぴったり100%（1.0）になる
+      const progressRatio = Math.min(1.0, driftElapsedRef.current / DURATION_MS)
+      const currentDepth = INITIAL_DEPTH + (1.0 - INITIAL_DEPTH) * progressRatio
+      
       setProgress(currentDepth)
     }, 1000)
 
@@ -445,7 +450,7 @@ export function FathomApp() {
     triggerResonance(0.26)
     
     await sendLetter(trimmed)
-    incrementRelease() // 🚨 思考を沈めたら放流回数をインクリメント
+    incrementRelease()
 
     setTimeout(() => {
       setIsDissolving(true)
@@ -489,7 +494,6 @@ export function FathomApp() {
     <main className="scene-root" style={{ background: '#02050a' }}>
       <style>{hudStyles}</style>
 
-      {/* 🚨 追加：蓄積された記憶のデータをキャンバスに渡す */}
       <DeepSeaCanvas
         progress={progress}
         windSpeed={windSpeed}
@@ -544,7 +548,6 @@ export function FathomApp() {
               <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>
               
-              {/* 🚨 追加：記憶（潜水時間と放流回数）の表示 */}
               <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ MEMORY ]</div>
               <div style={{ marginBottom: 4 }}>Age: {Math.floor(diveTimeMs / 60000)} fth</div>
               <div style={{ marginBottom: 4 }}>Releases: {releaseCount}</div>

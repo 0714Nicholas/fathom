@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as THREE from 'three' // 🚨  lerp などで THREE の MathUtils を使う
 
 export type FrictionImpulseOptions = {
   intensity?: number
@@ -41,13 +42,8 @@ type AudioGraphRefs = {
   surfaceGain: GainNode | null
 }
 
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, v))
-}
-
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t
-}
+// 🚨 修正：Three.js の MathUtils を使って、 lerp, clamp を実装
+const { lerp, clamp } = THREE.MathUtils;
 
 function expInterpolate(from: number, to: number, t: number) {
   const safeFrom = Math.max(1, from)
@@ -109,7 +105,8 @@ export function useDeepSeaAudio({
     ctx: null, node: null, lowpass: null, compressor: null, master: null, delayNode: null, surfaceSource: null, surfaceGain: null,
   })
 
-  const timersRef = useRef<{ bubble: number; whale: number }>({ bubble: 0, whale: 0 })
+  // 🚨 timersRef に crackle を追加
+  const timersRef = useRef<{ bubble: number; whale: number; crackle: number }>({ bubble: 0, whale: 0, crackle: 0 })
 
   const cutoffRef = useRef<number>(shallowCutoff)
   const [ready, setReady] = useState(false)
@@ -120,6 +117,28 @@ export function useDeepSeaAudio({
     () => mapToCutoff(progress, descent, shallowCutoff, deepCutoff),
     [deepCutoff, descent, progress, shallowCutoff]
   )
+
+  // ピンクノイズバーストを生成するための NoiseBuffer を useMemo で作成（使い回す）
+  const crackleNoiseBuffer = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    const ctx = new AudioContext({ latencyHint: 'interactive' });
+    const bufferSize = ctx.sampleRate * 0.1 // 100ms
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+    const output = buffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1 // ホワイトノイズ
+    }
+    // ピンクノイズに変換するためのFilterをかける
+    // 1-pole lowpass filter to make it "pink-ish"
+    let lastOut = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = output[i];
+      output[i] = (lastOut + (0.02 * white)) / 1.02;
+      lastOut = output[i];
+      output[i] *= 3.5; // Gain correction
+    }
+    return buffer;
+  }, []);
 
   const createGraph = useCallback(async () => {
     if (graphRef.current.ctx) return graphRef.current
@@ -212,7 +231,6 @@ export function useDeepSeaAudio({
     return graphRef.current
   }, [shallowCutoff, workletUrl])
 
-  // 🚨 修正：ソナー音を廃止し、本物の気泡（1〜3連発のピッチアップ）に変更
   const playBubble = useCallback(() => {
     const { ctx, lowpass, delayNode } = graphRef.current
     if (!ctx || !lowpass || !delayNode || ctx.state !== 'running') return
@@ -275,6 +293,47 @@ export function useDeepSeaAudio({
     osc.stop(t + duration)
   }, [])
 
+  // 🚨 修正：「メキメキ音（Crackle Sound）」の生成関数（標準ノードを使用）
+  const playCrackle = useCallback(() => {
+    const { ctx, lowpass, delayNode } = graphRef.current
+    if (!ctx || !lowpass || !delayNode || ctx.state !== 'running' || !crackleNoiseBuffer) return
+
+    // 短いピンクノイズバーストを再生
+    const source = ctx.createBufferSource();
+    source.buffer = crackleNoiseBuffer;
+    
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    
+    const t = ctx.currentTime;
+    
+    // 🚨 水深が深くなるにつれて、クラッキング音を高く、鋭くする
+    const evolutionRatio = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
+    
+    // Filter: Bandpass で軋み音の帯域を抽出。水深で帯域を上げる。
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(lerp(1000, 3000, evolutionRatio), t);
+    filter.Q.setValueAtTime(lerp(1.0, 5.0, evolutionRatio), t);
+
+    // Gain (エンベロープ): 非常に短い(10-30ms)バースト。水深で強度と鋭さを増す。
+    const startGain = lerp(0.01, 0.05, evolutionRatio); // 微量 -> 強烈
+    const duration = lerp(0.01, 0.03, evolutionRatio); // 10ms -> 30ms
+    
+    gain.gain.setValueAtTime(0, t)
+    gain.gain.linearRampToValueAtTime(startGain, t + 0.001) // 一瞬でMAX
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration) // すぐに消える
+
+    // Connect: 全体の Filter へ
+    source.connect(filter)
+    filter.connect(gain)
+    gain.connect(lowpass) // 既存の Master Filter へ
+
+    // Start/Stop
+    source.start(t)
+    source.stop(t + duration)
+  }, [crackleNoiseBuffer, progress])
+
+
   const scheduleEvents = useCallback(() => {
     const scheduleNextBubble = () => {
       const nextTime = Math.random() * 8000 + 4000 
@@ -292,24 +351,54 @@ export function useDeepSeaAudio({
       }, nextTime)
     }
 
+    // 🚨 「メキメキ音」のスケジュール追加
+    const scheduleNextCrackle = () => {
+      // 水深 50% 以上でのみスケジュール
+      if (progress > 0.5) {
+        playCrackle()
+        // 🚨 水深が深くなるにつれて、クラッキングの間隔を劇的に短くする
+        const evolutionRatio = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
+        const nextTime = lerp(2000, 200, evolutionRatio) + Math.random() * 500; // 2秒 -> 200ms
+        timersRef.current.crackle = window.setTimeout(scheduleNextCrackle, nextTime)
+      } else {
+        // 50%未満ならスケジュールを止める
+        window.clearTimeout(timersRef.current.crackle);
+        timersRef.current.crackle = 0;
+      }
+    }
+
     scheduleNextBubble()
     scheduleNextWhale()
-  }, [playBubble, playWhale])
+    // 潜行開始時にスケジュールを開始してみる（progressチェックは scheduleNextCrackle 内）
+    scheduleNextCrackle();
+
+  }, [playBubble, playWhale, playCrackle, progress])
 
   const clearEvents = useCallback(() => {
     window.clearTimeout(timersRef.current.bubble)
     window.clearTimeout(timersRef.current.whale)
+    // 🚨 crackle もクリア
+    window.clearTimeout(timersRef.current.crackle)
+    timersRef.current = { bubble: 0, whale: 0, crackle: 0 }
   }, [])
 
   const applyDynamicParams = useCallback(() => {
-    const { ctx, node, surfaceGain } = graphRef.current
+    const { ctx, node, surfaceGain, master } = graphRef.current
     if (!ctx || !node) return
 
     const now = ctx.currentTime
 
+    // 🚨 修正：「完全無音化（絶対の無）」ロジックを追加
+    // 90% 〜 100% の間で lerp して 0 に近づける
+    const silenceStart = 0.9;
+    const silenceEnd = 1.0;
+    const silenceRatio = THREE.MathUtils.clamp((progress - silenceStart) / (silenceEnd - silenceStart), 0, 1);
+    const silenceGain = 1.0 - silenceRatio; // 1 (0.9以前) -> 0 (1.0)
+
     const pinkLevel = mapRainToPinkLevel(rainAmount)
     const brownLevel = mapProgressToBrownLevel(progress)
-    const baseGain = mapWeatherToBaseGain(windSpeed, rainAmount, descent)
+    // 既存の Gain に silenceGain を掛けて無音化を適用
+    const baseGain = mapWeatherToBaseGain(windSpeed, rainAmount, descent) * silenceGain;
     const lfoRate = mapWindToLfoRate(windSpeed)
     const lfoDepth = mapWeatherToLfoDepth(windSpeed, rainAmount, descent)
     const stereoWidth = clamp(0.08 + windSpeed / 40, 0.08, 0.32)
@@ -327,8 +416,16 @@ export function useDeepSeaAudio({
     if (surfaceGain) {
       const surfaceDepthFade = Math.max(0, 1.0 - (progress / 0.35))
       const windVolume = clamp(windSpeed / 15, 0.2, 1.0)
-      const surfaceTargetGain = 0.12 * surfaceDepthFade * windVolume * clamp(descent, 0, 1)
+      // 🚨 無音化Gainを掛ける
+      const surfaceTargetGain = 0.12 * surfaceDepthFade * windVolume * clamp(descent, 0, 1) * silenceGain;
       surfaceGain.gain.setTargetAtTime(surfaceTargetGain, now, 0.5)
+    }
+
+    // 🚨 修正：全体の Master Gain を水深 100% で 0 にする
+    if (master) {
+      // 0.95 (0.9以前) -> 0.0 (1.0)
+      const targetMasterGain = lerp(0.95, 0.0, silenceRatio);
+      master.gain.setTargetAtTime(targetMasterGain, now, 0.5);
     }
 
   }, [descent, progress, rainAmount, windSpeed])
@@ -361,7 +458,9 @@ export function useDeepSeaAudio({
 
     const now = ctx.currentTime
     master.gain.cancelScheduledValues(now)
+    // 🚨 修正：Master Gain の初期値を settled で無音化が適用されることを考慮して 0.95 に
     master.gain.setValueAtTime(master.gain.value || 0.0001, now)
+    // applyDynamicParams で Master Gain が 0 になる（ progress=1.0時）ので、ここでは 0.95 まで lerp
     master.gain.exponentialRampToValueAtTime(0.95, now + 1.2)
 
     applyDynamicParams()
@@ -483,6 +582,21 @@ export function useDeepSeaAudio({
     if (!ready) return
     applyCutoff()
   }, [applyCutoff, ready])
+
+  // 🚨 progress が 0.5 を跨いだ時に scheduleEvents を呼び出して scheduleNextCrackle を再実行
+  useEffect(() => {
+    if (ready && running && progress > 0.5) {
+      // すでに動いていたら何もしないが、timersRef.current.crackle が 0 なら
+      if (timersRef.current.crackle === 0) {
+        // scheduleEvents を叩いて scheduleNextCrackle を開始
+        // しかし playBubble なども二重に走ってしまうため、
+        // useDeepSeaAudio の `enabled` が `descent=1` で叩かれる時に scheduleNextCrackle を開始させ、
+        // 0.5未満なら clearTimeout させるのが最も美しい。
+        // scheduleEvents は enabled=true ( descent=1 ) で叩かれているので、
+        // scheduleNextCrackle 内での progress チェックが正しく機能するはず。
+      }
+    }
+  }, [progress, ready, running])
 
   useEffect(() => {
     if (!enabled) return

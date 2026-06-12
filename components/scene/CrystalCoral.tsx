@@ -2,7 +2,7 @@
 
 import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Sphere, MeshTransmissionMaterial, Float, Environment, MeshDistortMaterial } from '@react-three/drei'
+import { MeshTransmissionMaterial, Float, Environment, MeshDistortMaterial } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
 
@@ -23,12 +23,64 @@ export function CrystalCoral({
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
 
-  // 🚨 進化度の計算：潜水時間(分) + 放流回数×5。最大100でMAX進化。
+  // 🚨 1. モーフィングターゲット（正二十面体）のジオメトリを生成
+  const { sphereGeometry, icosahedronGeometry } = useMemo(() => {
+    const radius = 0.4;
+    // ベースとなる球体。頂点数を多くして滑らかなモーフィングを表現。
+    const sphere = new THREE.SphereGeometry(radius, 64, 64);
+    
+    // ターゲットとなる正二十面体（detail=0）
+    const icosa = new THREE.IcosahedronGeometry(radius, 0);
+    
+    // 正二十面体の面の方程式（THREE.Plane）を計算
+    const posAttr = icosa.attributes.position;
+    const indexAttr = icosa.index;
+    const planes = [];
+    if (indexAttr) {
+      for (let i = 0; i < indexAttr.count; i += 3) {
+        const v1 = new THREE.Vector3().fromBufferAttribute(posAttr, indexAttr.getX(i));
+        const v2 = new THREE.Vector3().fromBufferAttribute(posAttr, indexAttr.getX(i+1));
+        const v3 = new THREE.Vector3().fromBufferAttribute(posAttr, indexAttr.getX(i+2));
+        planes.push(new THREE.Plane().setFromCoplanarPoints(v1, v2, v3));
+      }
+    }
+
+    // 球体の各頂点に対して、最も近い正二十面体の面への射影座標をモーフィングターゲットとして計算
+    const spherePosAttr = sphere.attributes.position;
+    const morphPositions = new Float32Array(spherePosAttr.count * 3);
+    
+    for (let i = 0; i < spherePosAttr.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(spherePosAttr, i);
+      let closestPoint = new THREE.Vector3();
+      let minDstSq = Infinity;
+      
+      // 20個の面の中から、最も近い面を見つける
+      for (let j = 0; j < planes.length; j++) {
+        const projected = planes[j].projectPoint(v, new THREE.Vector3());
+        const dstSq = v.distanceToSquared(projected); // distanceToSquaredで高速化
+        if (dstSq < minDstSq) {
+          minDstSq = dstSq;
+          closestPoint = projected;
+        }
+      }
+      closestPoint.toArray(morphPositions, i * 3);
+    }
+    
+    // モーフィングターゲット（ position ）を bufferAttribute としてジオメトリに追加
+    sphere.morphAttributes.position = [new THREE.BufferAttribute(morphPositions, 3)];
+    // THREE.js R125 以降、WebGLRenderer が自動的に morphTargets を処理する
+    // sphere.computeMorphTargets(); // 古い THREE.js の方法
+
+    return { sphereGeometry: sphere, icosahedronGeometry: icosa };
+  }, []);
+
+
+  // 進化度の計算（潜行時間）
   const evolutionScore = (diveTimeMs / 60000) + (releaseCount * 5)
   const evolutionRatio = useMemo(() => THREE.MathUtils.clamp(evolutionScore / 100, 0, 1), [evolutionScore])
 
+  // 気温による色変化
   const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
-  
   const coreColors = useMemo(() => {
     const coldEmissive = new THREE.Color('#0044ff') 
     const hotEmissive = new THREE.Color('#00ff66')  
@@ -46,7 +98,6 @@ export function CrystalCoral({
   const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.2, 0.4, clouds / 100), [clouds])
   const waterMurkiness = useMemo(() => Math.max(0.05, THREE.MathUtils.lerp(0.05, 0.2, Math.min(rainAmount / 5, 1))), [rainAmount])
 
-  // 🚨 成長によるガラスの進化：進化するほどガラスが分厚く、屈折が複雑になる
   const glassThickness = useMemo(() => THREE.MathUtils.lerp(1.5, 3.5, evolutionRatio), [evolutionRatio])
   const glassIor = useMemo(() => THREE.MathUtils.lerp(1.2, 1.28, evolutionRatio), [evolutionRatio])
 
@@ -59,12 +110,22 @@ export function CrystalCoral({
 
     const time = state.clock.elapsedTime
 
+    // 🚨 2. 水深 50% 〜 100% の間でモーフィングの影響度（influence）を lerp
+    const morphStart = 0.5;
+    const morphEnd = 1.0;
+    // MathUtils.lerp は 0.5 未満だと負の値になるため、clamp で 0〜1 に制限
+    const morphInfluence = THREE.MathUtils.clamp((progress - morphStart) / (morphEnd - morphStart), 0, 1);
+
     if (innerMatRef.current) {
+      // 🚨 内側のコアのモーフィング更新
+      if (innerMatRef.current.morphTargetInfluences) {
+        innerMatRef.current.morphTargetInfluences[0] = morphInfluence;
+      }
+      
       const baseGlow = 1.5 + Math.sin(time * 3.0) * 0.5 
       const flashGlow = flashEnergy.current * 5.0 
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
-      // 🚨 成長によるコアの進化：進化するほどうねりが激しく、生命力を持つ
       const pressureDistortion = progress * 0.3
       const evolutionDistortion = evolutionRatio * 0.4 
       innerMatRef.current.distort = 0.5 + pressureDistortion + evolutionDistortion + flashEnergy.current * 0.4
@@ -72,6 +133,11 @@ export function CrystalCoral({
     }
 
     if (outerMatRef.current) {
+      // 🚨 外側のガラスのモーフィング更新（同じジオメトリを使うため、同じ influence）
+      if (outerMatRef.current.morphTargetInfluences) {
+        outerMatRef.current.morphTargetInfluences[0] = morphInfluence;
+      }
+
       const flashAtten = new THREE.Color('#ffffff') 
       outerMatRef.current.attenuationColor.lerpColors(outerColors, flashAtten, flashEnergy.current)
 
@@ -113,7 +179,8 @@ export function CrystalCoral({
       <Environment preset="night" />
 
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-        <Sphere args={[0.4, 64, 64]}> 
+        {/* 🚨 内側のコア：球体のジオメトリ（morphTargets付き） */}
+        <mesh geometry={sphereGeometry}> 
           <MeshDistortMaterial
             ref={innerMatRef}
             color="#000000" 
@@ -123,16 +190,17 @@ export function CrystalCoral({
             distort={0.6} 
             speed={8}     
           />
-        </Sphere>
+        </mesh>
       </Float>
 
-      <Sphere args={[1.2, 64, 64]}>
+      {/* 🚨 外側のガラス外殻：球体のジオメトリ（morphTargets付き） */}
+      <mesh geometry={sphereGeometry}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={glassThickness}   // 🚨 進化によって分厚くなる
+          thickness={glassThickness}   
           roughness={waterMurkiness}      
           transmission={1.0} 
-          ior={glassIor}               // 🚨 進化によって屈折率が上がり、複雑な光を放つ
+          ior={glassIor}               
           chromaticAberration={0.05}  
           distortion={0.5}            
           temporalDistortion={0.3}    
@@ -141,7 +209,7 @@ export function CrystalCoral({
           attenuationDistance={3.0} 
           envMapIntensity={0.8}       
         />
-      </Sphere>
+      </mesh>
     </group>
   )
 }
