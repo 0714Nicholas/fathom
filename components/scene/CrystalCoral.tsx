@@ -21,30 +21,28 @@ export function CrystalCoral({
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
 
+  // 気温（temp）による色変化 (-10℃ 〜 35℃)
   const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
   
   const coreColors = useMemo(() => {
-    // 🚨 修正：色が白く飛ばないように、より深く鮮やかな原色を指定
-    const coldEmissive = new THREE.Color('#0055ff') // 冴え渡るアクアブルー
-    const hotEmissive = new THREE.Color('#00ff44')  // 生命力あふれる純粋な緑
-    const coldBase = new THREE.Color('#0022aa')
-    const hotBase = new THREE.Color('#008822')
-
+    // 🚨 修正：コア自体は深い色を発光させる
+    const coldEmissive = new THREE.Color('#0044ff') // 深い海のような青
+    const hotEmissive = new THREE.Color('#00ff66')  // 生命力のあるエメラルド
     return {
-      emissive: new THREE.Color().lerpColors(coldEmissive, hotEmissive, colorRatio),
-      base: new THREE.Color().lerpColors(coldBase, hotBase, colorRatio)
+      emissive: new THREE.Color().lerpColors(coldEmissive, hotEmissive, colorRatio)
     }
   }, [colorRatio])
 
   const outerColors = useMemo(() => {
-    // 🚨 修正：ガラス自体の透過色を明るく設定
+    // 🚨 修正：ガラスを通した時に濁らないよう、明るく澄んだ色を減衰色に指定
     const coldAtten = new THREE.Color('#88ccff')
-    const hotAtten = new THREE.Color('#66ffaa')
+    const hotAtten = new THREE.Color('#88ffcc')
     return new THREE.Color().lerpColors(coldAtten, hotAtten, colorRatio)
   }, [colorRatio])
 
-  const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.5, 0.4, clouds / 100), [clouds])
-  const waterMurkiness = useMemo(() => Math.max(0.05, THREE.MathUtils.lerp(0.01, 0.25, Math.min(rainAmount / 5, 1))), [rainAmount])
+  const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.2, 0.4, clouds / 100), [clouds])
+  // 雨による濁りは最低限の 0.05（うっすらした曇りガラス）〜0.2に留める
+  const waterMurkiness = useMemo(() => Math.max(0.05, THREE.MathUtils.lerp(0.05, 0.2, Math.min(rainAmount / 5, 1))), [rainAmount])
 
   useFrame((state, delta) => {
     if (resonancePulse > prevPulse.current) {
@@ -56,9 +54,9 @@ export function CrystalCoral({
     const time = state.clock.elapsedTime
 
     if (innerMatRef.current) {
-      // 🚨 修正：ベースの発光を 6.0 → 2.0 に大幅に下げ、色が白に飛ぶのを防ぐ
-      const baseGlow = 2.0 + Math.sin(time * 3.0) * 0.5 
-      const flashGlow = flashEnergy.current * 6.0 
+      // 🚨 修正：ベースの発光を 1.5 程度に抑え、うねりの陰影（暗い部分）を残す
+      const baseGlow = 1.5 + Math.sin(time * 3.0) * 0.5 
+      const flashGlow = flashEnergy.current * 5.0 
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
       const pressureDistortion = progress * 0.3
@@ -103,42 +101,40 @@ export function CrystalCoral({
 
   return (
     <group ref={groupRef} scale={0.55} position={[0, -0.2, 0]}>
-      <ambientLight intensity={lightIntensity * 0.3} />
+      <ambientLight intensity={lightIntensity * 0.5} />
       <directionalLight position={[5, 5, 2]} intensity={lightIntensity} color="#8fd8ff" />
       <Environment preset="night" />
 
-      {/* 内側のコア */}
+      {/* 🚨 内側のコア：色を黒ベースにして発光(emissive)だけで見せることで、うねりの立体感を強調 */}
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
         <Sphere args={[0.4, 64, 64]}> 
           <MeshDistortMaterial
             ref={innerMatRef}
-            color={coreColors.base}
+            color="#000000" // ここを黒にすることで、白飛びを防ぎ立体感が出る
             emissive={coreColors.emissive} 
-            emissiveIntensity={2.0} // 白飛び防止
-            toneMapped={true} // 🚨 追加：色味を保つためのトーンマッピング有効化
+            emissiveIntensity={1.5} 
+            toneMapped={false} // 絶対にfalse（色が平坦になるのを防ぐ）
             distort={0.6} 
             speed={8}     
           />
         </Sphere>
       </Float>
 
-      {/* 外側のガラス外殻 */}
+      {/* 🚨 外側のガラス外殻：完全なガラスの物理法則に戻す */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
           thickness={1.5}             
           roughness={waterMurkiness}      
-          transmission={0.9} // 🚨 修正：1.0(完全透明)から0.9に下げ、ガラス自体に色を残す       
-          ior={1.05} // 🚨 修正：屈折率を極限まで下げて「黒背景の吸い込み」を防止
+          transmission={1.0} // 🚨 絶対に1.0（これでプラスチック感が消え、ガラスに戻る）
+          ior={1.2} // 🚨 1.05だと平坦すぎ、1.33だと黒背景を吸いすぎる。1.2が黄金比。
           chromaticAberration={0.05}  
           distortion={0.5}            
           temporalDistortion={0.3}    
-          color={outerColors} // 🚨 修正：白ではなく、温度に合わせた色を指定
-          emissive={outerColors} // 🚨 修正：ガラス自体をごく僅かに発光させ、暗黒化を防ぐ
-          emissiveIntensity={0.15}
-          attenuationColor={outerColors} 
-          attenuationDistance={2.0}  
-          envMapIntensity={0.3} // 🚨 修正：暗い空（環境）の反射を弱める       
+          color="#ffffff" // 🚨 ガラス表面自体は必ず無色透明(白)にする
+          attenuationColor={outerColors} // 🚨 光が通過した時にこの色（気温の色）がつく
+          attenuationDistance={3.0} // 距離を適度に取ることで、透き通った色になる
+          envMapIntensity={0.8}       
         />
       </Sphere>
     </group>
