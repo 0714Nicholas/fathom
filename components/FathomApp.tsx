@@ -40,6 +40,7 @@ const hudStyles = `
     cursor: pointer;
     padding: 4px 8px;
     transition: all 0.3s ease;
+    white-space: nowrap; /* 🚨 追加：ボタン内の文字が絶対に改行されないようにする */
   }
   .hud-btn:hover {
     color: rgba(143, 216, 255, 1);
@@ -551,7 +552,7 @@ export function FathomApp() {
         isSuspended={!audio.running}
         diveTimeMs={diveTimeMs}     
         releaseCount={releaseCount} 
-        sessionPhase={sessionPhase} // 🚨 確実に追加！
+        sessionPhase={sessionPhase} 
       />
 
       <div className="scene-vignette" />
@@ -620,7 +621,8 @@ export function FathomApp() {
             </div>
 
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
-              <div style={{ display: 'flex', gap: 16, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 8, width: '100%', justifyContent: 'flex-end' }}>
+              {/* 🚨 修正：ボタン群をラップするためのコンテナスタイル */}
+              <div style={{ display: 'flex', gap: 16, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 8, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <button
                   className="hud-btn"
                   style={{ opacity: channelMode === 'global' ? 1 : 0.3, padding: 0 }}
