@@ -377,7 +377,7 @@ export function FathomApp() {
   } = useRealtimeLetters({
     roomId: ROOM_ID, selfId, selfName: 'visitor', city: data?.city, depth: progress, descent,
     currentWeatherSnapshot: weatherSnapshot, preferredLang: null, onRemoteResonance: handleRemoteResonance,
-    enableFirstSurfacing: true, firstSurfacingGraceMs: 1600,
+    enableFirstSurfacing: false, firstSurfacingGraceMs: 1600,
   })
 
   // 🚨 Resonanceチャンネルでのみ、共鳴した相手の手紙を表示

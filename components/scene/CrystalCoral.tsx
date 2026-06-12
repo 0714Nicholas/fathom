@@ -21,16 +21,15 @@ export function CrystalCoral({
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
 
-  // 🚨 1. 気温（temp）による「明確な色変化」
-  // 寒極(-10℃) 〜 猛暑(35℃)
+  // 気温（temp）による「明確な色変化」 (-10℃ 〜 35℃)
   const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
   
   const coreColors = useMemo(() => {
-    // 寒い＝深いインディゴブルー / 暑い＝熱水噴出孔のようなエメラルド
-    const coldEmissive = new THREE.Color('#0022cc')
-    const hotEmissive = new THREE.Color('#00cc66')
-    const coldBase = new THREE.Color('#000088')
-    const hotBase = new THREE.Color('#004422')
+    // 🚨 修正：色をより濃く、鮮やかに設定
+    const coldEmissive = new THREE.Color('#0033ff') // 冴え渡るブルー
+    const hotEmissive = new THREE.Color('#00ff55')  // 強烈なエメラルドグリーン
+    const coldBase = new THREE.Color('#0000cc')
+    const hotBase = new THREE.Color('#008822')
 
     return {
       emissive: new THREE.Color().lerpColors(coldEmissive, hotEmissive, colorRatio),
@@ -38,19 +37,14 @@ export function CrystalCoral({
     }
   }, [colorRatio])
 
-  // 外側のガラス自体も、温度によって冷たい色/暖かい色にシフトさせる
   const outerColors = useMemo(() => {
-    const coldAtten = new THREE.Color('#aaccff')
-    const hotAtten = new THREE.Color('#aaffdd')
+    // 🚨 修正：外側のガラスの透過色も、温度に合わせて鮮やかに
+    const coldAtten = new THREE.Color('#4499ff')
+    const hotAtten = new THREE.Color('#33ff99')
     return new THREE.Color().lerpColors(coldAtten, hotAtten, colorRatio)
   }, [colorRatio])
 
-  // 🚨 2. 雲量（clouds）による「環境光の暗さ」
-  // 晴れ(0) = 明るい / 曇り(100) = 暗い
   const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.5, 0.4, clouds / 100), [clouds])
-
-  // 🚨 3. 雨量（rainAmount）による「水の濁り（レンズの曇り）」
-  // 雨が降っていると、ガラスのroughness（粗さ）が上がり、中が濁って見える
   const waterMurkiness = useMemo(() => THREE.MathUtils.lerp(0.01, 0.25, Math.min(rainAmount / 5, 1)), [rainAmount])
 
   useFrame((state, delta) => {
@@ -63,8 +57,9 @@ export function CrystalCoral({
     const time = state.clock.elapsedTime
 
     if (innerMatRef.current) {
-      const baseGlow = 8.0 + Math.sin(time * 3.0) * 1.5 
-      const flashGlow = flashEnergy.current * 10.0 
+      // 🚨 修正：ベースの発光を 8.0 → 4.0 に下げて白飛びを防ぎ、色の濃さを引き出す
+      const baseGlow = 4.0 + Math.sin(time * 3.0) * 1.5 
+      const flashGlow = flashEnergy.current * 15.0 // フラッシュ時は強烈に光る
       innerMatRef.current.emissiveIntensity = baseGlow + flashGlow
       
       const pressureDistortion = progress * 0.3
@@ -73,11 +68,9 @@ export function CrystalCoral({
     }
 
     if (outerMatRef.current) {
-      // 普段は温度に紐づいた色、共鳴時だけ白くフラッシュ
       const flashAtten = new THREE.Color('#ffffff') 
       outerMatRef.current.attenuationColor.lerpColors(outerColors, flashAtten, flashEnergy.current)
 
-      // 🚨 風（windSpeed）が強いほど、外殻が激しく波打つ
       const baseDistortion = 0.4 + (windSpeed * 0.06)
       outerMatRef.current.distortion = THREE.MathUtils.lerp(
         outerMatRef.current.distortion,
@@ -111,7 +104,6 @@ export function CrystalCoral({
 
   return (
     <group ref={groupRef} scale={0.55} position={[0, -0.2, 0]}>
-      {/* 🚨 雲量によって光の強さが変わる */}
       <ambientLight intensity={lightIntensity * 0.2} />
       <directionalLight position={[5, 5, 2]} intensity={lightIntensity} color="#8fd8ff" />
       <Environment preset="night" />
@@ -122,7 +114,7 @@ export function CrystalCoral({
             ref={innerMatRef}
             color={coreColors.base}
             emissive={coreColors.emissive} 
-            emissiveIntensity={8.0}
+            emissiveIntensity={4.0} // 🚨 ここも 4.0 に下げる
             toneMapped={false}
             distort={0.6} 
             speed={8}     
@@ -134,15 +126,15 @@ export function CrystalCoral({
         <MeshTransmissionMaterial
           ref={outerMatRef}
           thickness={1.5}             
-          roughness={waterMurkiness} // 🚨 雨が降ると濁る        
+          roughness={waterMurkiness}      
           transmission={1}            
           ior={1.33}                  
           chromaticAberration={0.06}  
           distortion={0.5}            
           temporalDistortion={0.3}    
           color="#ffffff"             
-          attenuationColor={outerColors} // 🚨 外殻の色も温度でシフトさせる  
-          attenuationDistance={2.5}   
+          attenuationColor={outerColors} 
+          attenuationDistance={2.0} // 🚨 距離を縮めて色を濃く出す  
           envMapIntensity={1.0}       
         />
       </Sphere>
