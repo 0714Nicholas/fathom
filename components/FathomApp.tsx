@@ -18,7 +18,7 @@ import { useFathomMemory } from '@/hooks/useFathomMemory'
 
 const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
-export type FathomMode = 'focus' | 'meditate' | 'sleep'
+export type FathomMode = 'pomodoro' | 'meditate' | 'focus' | 'sleep'
 
 const hudStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap');
@@ -185,12 +185,13 @@ function visibilityClass(
 
 function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m: FathomMode) => void }) {
   const modes: { value: FathomMode; label: string }[] = [
-    { value: 'focus', label: 'Focus' },
-    { value: 'meditate', label: 'Meditate' },
-    { value: 'sleep', label: 'Sleep' },
+    { value: 'pomodoro', label: 'Pomodoro (25m+5m)' },
+    { value: 'meditate', label: 'Meditate (25m+5m)' },
+    { value: 'focus', label: 'Focus (90m)' },
+    { value: 'sleep', label: 'Sleep (120m)' },
   ]
   return (
-    <div style={{ display: 'flex', gap: 12, marginBottom: 32 }}>
+    <div style={{ display: 'flex', gap: 12, marginBottom: 32, flexWrap: 'wrap', justifyContent: 'center' }}>
       {modes.map((m) => {
         const isActive = current === m.value
         return (
@@ -320,6 +321,10 @@ export function FathomApp() {
   const [progress, setProgress] = useState(0)
   const [fathomMode, setFathomMode] = useState<FathomMode>('focus')
   
+  // 🚨 新規状態：ダイブのフェーズ管理
+  const [sessionPhase, setSessionPhase] = useState<'diving' | 'interval' | 'completed'>('diving')
+  const sessionPhaseRef = useRef<'diving' | 'interval' | 'completed'>('diving')
+  
   const [composeKey, setComposeKey] = useState(0)
   const [resonancePulse, setResonancePulse] = useState(0)
   const [resonanceEnergy, setResonanceEnergy] = useState(0.14)
@@ -358,22 +363,17 @@ export function FathomApp() {
 
   const driftElapsedRef = useRef(0)
 
+  // 🚨 タイマーロジックの大改修（25分+5分の浮上システムの統合）
   useEffect(() => {
-    if (!settled) { 
-      const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
-      setProgress(descent * INITIAL_DEPTH)
-      driftElapsedRef.current = 0
-      return 
-    }
-
-    if (!audio.running) return
+    if (!settled || !audio.running) return
 
     let lastTick = Date.now()
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
     
-    // 🚨 修正: 確実に100%に到達するタイマー設計
-    // Focus = 90分, Meditate = 60分, Sleep = 120分
-    const DURATION_MS = fathomMode === 'focus' ? 90 * 60 * 1000 : fathomMode === 'meditate' ? 60 * 60 * 1000 : 120 * 60 * 1000
+    const WORK_MS = 25 * 60 * 1000 // 25分
+    const BREAK_MS = 5 * 60 * 1000 // 5分
+    const FOCUS_MS = 90 * 60 * 1000 // 90分
+    const SLEEP_MS = 120 * 60 * 1000 // 120分
 
     const timer = window.setInterval(() => {
       const now = Date.now()
@@ -381,11 +381,41 @@ export function FathomApp() {
       lastTick = now
       driftElapsedRef.current += delta
 
-      // 🚨 直線的（Linear）に進行し、指定時間でぴったり100%（1.0）になる
-      const progressRatio = Math.min(1.0, driftElapsedRef.current / DURATION_MS)
-      const currentDepth = INITIAL_DEPTH + (1.0 - INITIAL_DEPTH) * progressRatio
-      
+      let newPhase: 'diving' | 'interval' | 'completed' = 'diving'
+      let currentDepth = INITIAL_DEPTH
+
+      // ポモドーロと瞑想：25分潜行 ＋ 5分浮上
+      if (fathomMode === 'pomodoro' || fathomMode === 'meditate') {
+        if (driftElapsedRef.current < WORK_MS) {
+          newPhase = 'diving'
+          currentDepth = INITIAL_DEPTH + (1.0 - INITIAL_DEPTH) * (driftElapsedRef.current / WORK_MS)
+        } else if (driftElapsedRef.current < WORK_MS + BREAK_MS) {
+          newPhase = 'interval'
+          const breakRatio = (driftElapsedRef.current - WORK_MS) / BREAK_MS
+          currentDepth = 1.0 - (1.0 - INITIAL_DEPTH) * breakRatio // 1.0 -> 0.18 へ浮上
+        } else {
+          newPhase = 'completed'
+          currentDepth = INITIAL_DEPTH
+        }
+      } else {
+        // フォーカスと睡眠：直線で底へ
+        const DURATION = fathomMode === 'focus' ? FOCUS_MS : SLEEP_MS
+        if (driftElapsedRef.current < DURATION) {
+          newPhase = 'diving'
+          currentDepth = INITIAL_DEPTH + (1.0 - INITIAL_DEPTH) * (driftElapsedRef.current / DURATION)
+        } else {
+          newPhase = 'completed'
+          currentDepth = 1.0
+        }
+      }
+
       setProgress(currentDepth)
+      
+      // フェーズの切り替わりを検知
+      if (sessionPhaseRef.current !== newPhase) {
+        sessionPhaseRef.current = newPhase
+        setSessionPhase(newPhase)
+      }
     }, 1000)
 
     return () => window.clearInterval(timer)
@@ -395,6 +425,28 @@ export function FathomApp() {
     setResonanceEnergy(energy)
     setResonancePulse((p) => p + 1)
   }, [])
+
+  // 🚨 フェーズ切り替え時の音響演出（澄んだソナー音）
+  useEffect(() => {
+    if (sessionPhase === 'interval') {
+      audio.triggerFrictionImpulse({ intensity: 0.6, durationMs: 300, color: 0.1 })
+      triggerResonance(0.8)
+    } else if (sessionPhase === 'completed' && (fathomMode === 'pomodoro' || fathomMode === 'meditate')) {
+      audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 500, color: 0.5 })
+      triggerResonance(0.4)
+    }
+  }, [sessionPhase, audio, triggerResonance, fathomMode])
+
+  // 🚨 次のサイクルへ潜る関数
+  const handleDiveAgain = useCallback(() => {
+    driftElapsedRef.current = 0
+    sessionPhaseRef.current = 'diving'
+    setSessionPhase('diving')
+    setProgress(0.18)
+    audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 150, color: 0.8 })
+    triggerResonance(0.3)
+  }, [audio, triggerResonance])
+
 
   const handleRemoteResonance = useCallback((payload: ResonancePulsePayload) => {
     const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
@@ -441,7 +493,7 @@ export function FathomApp() {
   const canSend = useMemo(() => draft.trim().length > 0, [draft])
 
   const handleReleaseThought = useCallback(async () => {
-    if (!canSend) return
+    if (!canSend || sessionPhase !== 'diving') return
     const trimmed = draft.trim()
     setComposedText(trimmed)
     setDraft('')
@@ -457,7 +509,7 @@ export function FathomApp() {
       setTimeout(() => setComposedText(null), 4000)
     }, 12000)
 
-  }, [canSend, draft, sendLetter, triggerResonance, incrementRelease])
+  }, [canSend, draft, sessionPhase, sendLetter, triggerResonance, incrementRelease])
 
   const handleBury = useCallback(async (letterId: string) => {
     if (await buryOwnLetter(letterId)) {
@@ -531,6 +583,28 @@ export function FathomApp() {
           </div>
         ) : null}
 
+        {/* 🚨 追加：減圧中（浮上中）の専用メッセージ */}
+        {hasDescended && settled && sessionPhase === 'interval' ? (
+          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease' }}>
+            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(143,216,255,0.85)' }}>
+              深く潜りすぎた思考を、一度水面へ。<br/>ゆっくりと光の中へ浮上します。
+            </p>
+            <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>decompressing — {Math.round(progress * 100)}%</div>
+          </div>
+        ) : null}
+
+        {/* 🚨 追加：水面到達時（サイクル完了）の専用メッセージとボタン */}
+        {hasDescended && settled && sessionPhase === 'completed' && (fathomMode === 'pomodoro' || fathomMode === 'meditate') ? (
+          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', pointerEvents: 'auto' }}>
+            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)', marginBottom: 32 }}>
+              水面に到達しました。<br/>息を整え、次の深淵へ。
+            </p>
+            <button className="hud-btn" onClick={handleDiveAgain} style={{ fontSize: 12, padding: '8px 24px', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 24 }}>
+              [ descend again ]
+            </button>
+          </div>
+        ) : null}
+
         {hasDescended && settled ? (
           <>
             <div className={`hud-top-left ${visibilityClass(settled, 1)}`}>
@@ -541,7 +615,10 @@ export function FathomApp() {
             </div>
 
             <div className={`hud-bottom-left ${visibilityClass(settled, 2)}`}>
-              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ ABYSS ]</div>
+              {/* 🚨 修正：フェーズによって表記を変更 */}
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>
+                {sessionPhase === 'interval' ? '[ DECOMPRESSION ]' : '[ ABYSS ]'}
+              </div>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
               <div style={{ marginBottom: 12 }}>Pressure: {currentPressure} atm</div>
               <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
@@ -646,17 +723,24 @@ export function FathomApp() {
                 ) : null}
               </div>
 
-              <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                <textarea
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder="思考を深海へ沈める..."
-                  className="hud-textarea"
-                />
-                <button className="hud-btn" onClick={() => void handleReleaseThought()} disabled={!canSend || status !== 'subscribed'}>
-                  [ release ]
-                </button>
-              </div>
+              {/* 🚨 修正：インターバル（減圧）中や完了時は入力を制限する */}
+              {sessionPhase === 'diving' ? (
+                <div style={{ display: 'flex', width: '100%', gap: 16, alignItems: 'center', padding: '0', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder="思考を深海へ沈める..."
+                    className="hud-textarea"
+                  />
+                  <button className="hud-btn" onClick={() => void handleReleaseThought()} disabled={!canSend || status !== 'subscribed'}>
+                    [ release ]
+                  </button>
+                </div>
+              ) : sessionPhase === 'interval' ? (
+                <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.1em' }} className="font-mincho">
+                  （ 減圧中：水面で息を整えてください ）
+                </div>
+              ) : null}
 
               <div style={{ display: 'flex', gap: 24, marginTop: 24 }}>
                 {!audio.running ? (
