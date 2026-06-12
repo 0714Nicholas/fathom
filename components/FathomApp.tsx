@@ -40,7 +40,7 @@ const hudStyles = `
     cursor: pointer;
     padding: 4px 8px;
     transition: all 0.3s ease;
-    white-space: nowrap; /* 🚨 追加：ボタン内の文字が絶対に改行されないようにする */
+    white-space: nowrap;
   }
   .hud-btn:hover {
     color: rgba(143, 216, 255, 1);
@@ -191,7 +191,7 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
     { value: 'sleep', label: 'Sleep (60m)' },
   ]
   return (
-    <div style={{ display: 'flex', gap: 12, marginBottom: 32, flexWrap: 'wrap', justifyContent: 'center' }}>
+    <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', justifyContent: 'center', maxWidth: '400px' }}>
       {modes.map((m) => {
         const isActive = current === m.value
         return (
@@ -209,6 +209,7 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
               letterSpacing: '0.1em',
               fontSize: '13px',
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
             }}
           >
             {m.label}
@@ -301,15 +302,32 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
 
   return (
     <div className="descend-stage" aria-hidden={isLeaving}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}>
-        <div className="descend-caption font-mincho" style={{ marginBottom: 24, opacity: 0.8, fontSize: 14 }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 16 }}>{resolvedCity}</span> の気象を受信しました。潜行の目的を選択してください。
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto', width: '100%', padding: '0 16px' }}>
+        
+        {/* 🚨 修正：文字が絶対に横にはみ出さず、美しく2行に折り返されるように設定 */}
+        <div className="descend-caption font-mincho" style={{ 
+          marginBottom: 32, 
+          opacity: 0.8, 
+          fontSize: 14, 
+          textAlign: 'center', 
+          whiteSpace: 'normal', // nowrap を強制解除
+          lineHeight: 1.8, 
+          maxWidth: '90vw',
+          wordBreak: 'keep-all' 
+        }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 16 }}>{resolvedCity}</span> の気象を受信しました。<br/>潜行の目的を選択してください。
         </div>
+
         <ModeSelector current={mode} onSelect={setMode} />
-        <button type="button" className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} onClick={() => onDescend(mode)} disabled={isLeaving}>
-          <span className="descend-word">descend</span>
-        </button>
-        <div className="descend-caption" style={{ marginTop: 24, letterSpacing: '0.15em' }}>press to enter the deep</div>
+
+        {/* 🚨 修正：ボタンと文字が干渉しないように専用の Wrapper で囲み、余白を確保 */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 16, position: 'relative' }}>
+          <button type="button" className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} onClick={() => onDescend(mode)} disabled={isLeaving}>
+            <span className="descend-word">descend</span>
+          </button>
+          <div className="descend-caption" style={{ marginTop: 24, letterSpacing: '0.15em', textAlign: 'center' }}>press to enter the deep</div>
+        </div>
+
       </div>
     </div>
   )
@@ -368,10 +386,10 @@ export function FathomApp() {
     let lastTick = Date.now()
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
     
-    const WORK_MS = 25 * 60 * 1000 // 25分
-    const BREAK_MS = 5 * 60 * 1000 // 5分
-    const FOCUS_MS = 90 * 60 * 1000 // 90分
-    const SLEEP_MS = 60 * 60 * 1000 // 60分
+    const WORK_MS = 25 * 60 * 1000 
+    const BREAK_MS = 5 * 60 * 1000 
+    const FOCUS_MS = 90 * 60 * 1000 
+    const SLEEP_MS = 60 * 60 * 1000 
 
     const timer = window.setInterval(() => {
       const now = Date.now()
@@ -389,7 +407,7 @@ export function FathomApp() {
         } else if (driftElapsedRef.current < WORK_MS + BREAK_MS) {
           newPhase = 'interval'
           const breakRatio = (driftElapsedRef.current - WORK_MS) / BREAK_MS
-          currentDepth = 1.0 - (1.0 - INITIAL_DEPTH) * breakRatio // 1.0 -> 0.18 へ浮上
+          currentDepth = 1.0 - (1.0 - INITIAL_DEPTH) * breakRatio 
         } else {
           newPhase = 'completed'
           currentDepth = INITIAL_DEPTH
@@ -621,7 +639,6 @@ export function FathomApp() {
             </div>
 
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
-              {/* 🚨 修正：ボタン群をラップするためのコンテナスタイル */}
               <div style={{ display: 'flex', gap: 16, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 8, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <button
                   className="hud-btn"
