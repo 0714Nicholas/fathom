@@ -5,7 +5,7 @@ import { generateFathomCoordinate, isValidFathomCoordinate, formatCoordinateForS
 // import { supabase } from '@/lib/supabase/client' // ※実際のSupabaseクライアントがある場合はこちらをインポート
 
 // --- 動作確認用のダミーSupabaseクライアント（本番実装時は消してください） ---
-const supabase any = {
+const supabase: any = {
   auth: {
     signInAnonymously: async () => ({ data: { user: { id: `anon-${Date.now()}` } }, error: null }),
     getUser: async () => ({ data: { user: null }, error: null })
