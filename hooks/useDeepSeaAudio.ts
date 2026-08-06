@@ -42,7 +42,6 @@ type AudioGraphRefs = {
   surfaceGain: GainNode | null
 }
 
-// 🚨 追加：バックグラウンド維持のための「1秒間の無音データ (Base64)」
 const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
 
 const { lerp, clamp } = THREE.MathUtils;
@@ -103,7 +102,6 @@ export function useDeepSeaAudio({
     ctx: null, node: null, lowpass: null, compressor: null, master: null, delayNode: null, surfaceSource: null, surfaceGain: null,
   })
 
-  // 🚨 追加：バックグラウンド再生を維持するためのダミーオーディオ要素
   const dummyAudioRef = useRef<HTMLAudioElement | null>(null)
 
   const timersRef = useRef<{ bubble: number; whale: number; crackle: number }>({ bubble: 0, whale: 0, crackle: 0 })
@@ -137,13 +135,13 @@ export function useDeepSeaAudio({
     return buffer;
   }, []);
 
-  // 🚨 追加：初期化時にダミーオーディオとロック画面表示を設定
   useEffect(() => {
     if (typeof window === 'undefined') return
 
     const audio = new Audio(SILENT_WAV)
     audio.loop = true
-    audio.playsInline = true // iOSで全画面化させずに裏で鳴らすための魔法
+    // 🚨 修正：TypeScriptエラーを回避するため setAttribute を使用
+    audio.setAttribute('playsinline', 'true') 
     dummyAudioRef.current = audio
 
     if ('mediaSession' in navigator) {
@@ -156,7 +154,6 @@ export function useDeepSeaAudio({
           { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png' }
         ]
       })
-      // 誤操作を防ぐため、ロック画面からの再生・停止コントロールを無効化する
       navigator.mediaSession.setActionHandler('play', () => {})
       navigator.mediaSession.setActionHandler('pause', () => {})
     }
@@ -461,7 +458,6 @@ export function useDeepSeaAudio({
     const { ctx, master } = graph
     if (!ctx || !master) return
 
-    // 🚨 修正：開始時にダミーオーディオを再生し、OSに音楽再生中と認識させる
     if (dummyAudioRef.current) {
       dummyAudioRef.current.play().catch(() => console.warn('Background lock audio blocked'))
     }
@@ -483,7 +479,6 @@ export function useDeepSeaAudio({
     const graph = await createGraph()
     if (!graph.ctx || !graph.master) return
 
-    // 🚨 修正：再開時にもダミーオーディオを再生
     if (dummyAudioRef.current) {
       dummyAudioRef.current.play().catch(() => console.warn('Background lock audio blocked'))
     }
@@ -505,7 +500,6 @@ export function useDeepSeaAudio({
     const { ctx, master } = graphRef.current
     if (!ctx || !master) return
 
-    // 🚨 修正：サスペンド時はダミーオーディオを止める
     if (dummyAudioRef.current) dummyAudioRef.current.pause()
 
     const now = ctx.currentTime
@@ -525,7 +519,6 @@ export function useDeepSeaAudio({
     const { ctx, node, lowpass, compressor, master, delayNode, surfaceSource } = graphRef.current
     if (!ctx) return
 
-    // 🚨 修正：完全停止時はダミーオーディオを止める
     if (dummyAudioRef.current) dummyAudioRef.current.pause()
 
     const now = ctx.currentTime
