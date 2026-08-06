@@ -16,7 +16,6 @@ import { useFathomDescent } from '@/hooks/useFathomDescent'
 import { isValidFathomCoordinate, formatCoordinateForSystem } from '@/lib/identity/coordinates'
 import { useFathomMemory } from '@/hooks/useFathomMemory'
 
-// 🚨 新規追加：世界の果てリストと、Auth / Seed 連携ファイル
 import { PORTS } from '@/lib/scene/ports'
 import { useSelfSeed } from '@/hooks/useSelfSeed'
 import { RestoreMemoryModal } from '@/components/auth/RestoreMemoryModal'
@@ -25,7 +24,6 @@ const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'meditate' | 'focus' | 'sleep'
 
-// 🚨 CSS: 元のhudStylesにチューニング用UIのスタイルを統合
 const hudStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap');
 
@@ -144,6 +142,40 @@ const hudStyles = `
   }
 `
 
+// 音が飛んできた方向の「画面のフチ」を光らせるクロスモーダル・エフェクト
+function EdgeResonanceOverlay({ ripples }: { ripples: { id: number, pan: number }[] }) {
+  return (
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 40, overflow: 'hidden' }}>
+      {ripples.map(r => {
+        const leftPos = 50 + (r.pan * 60)
+        return (
+          <div
+            key={r.id}
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: `${leftPos}%`,
+              width: '40vw',
+              height: '80vh',
+              transform: 'translate(-50%, -50%)',
+              background: 'radial-gradient(ellipse at center, rgba(143,216,255,0.15) 0%, rgba(143,216,255,0) 60%)',
+              mixBlendMode: 'screen',
+              animation: 'edge-glow 3s cubic-bezier(0.1, 0.8, 0.2, 1) forwards'
+            }}
+          />
+        )
+      })}
+      <style>{`
+        @keyframes edge-glow {
+          0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+          15% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); filter: brightness(1.2); }
+          100% { opacity: 0; transform: translate(-50%, -50%) scale(1.3); }
+        }
+      `}</style>
+    </div>
+  )
+}
+
 function downloadCrystalMemory(coordinate: string, depth: number) {
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
@@ -203,10 +235,7 @@ function downloadCrystalMemory(coordinate: string, depth: number) {
   document.body.removeChild(a)
 }
 
-function visibilityClass(
-  settled: boolean,
-  stagger?: 1 | 2 | 3 | 4 | 5 | 6
-): string {
+function visibilityClass(settled: boolean, stagger?: 1 | 2 | 3 | 4 | 5 | 6): string {
   const base = settled ? 'ui-revealed' : 'ui-veiled'
   const staggerCls = stagger ? `ui-stagger-${stagger}` : ''
   return [base, staggerCls].filter(Boolean).join(' ')
@@ -248,7 +277,6 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
   )
 }
 
-// 🚨 新規コンポーネント：アナログチューナーによるエントランス儀式
 function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, isLoading, onSearch }: any) {
   const [mode, setMode] = useState<FathomMode>('focus')
   const [dialValue, setDialValue] = useState(50)
@@ -351,7 +379,6 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
           press to enter the deep
         </div>
 
-        {/* 🚨 記憶の復帰モーダルを呼び出すボタン */}
         <button 
           type="button" 
           className="hud-btn" 
@@ -390,11 +417,12 @@ export function FathomApp() {
   const [linkedPeers, setLinkedPeers] = useState<Set<string>>(new Set())
   const [linkInputError, setLinkInputError] = useState(false)
 
-  // 🚨 新規追加：Auth状態と復帰モーダルの管理
+  // 光の波紋（クロスモーダル連携）を管理するState
+  const [ripples, setRipples] = useState<{id: number, pan: number}[]>([])
+
   const { seed: selfId, isLoading: isSeedLoading, restoreSeed } = useSelfSeed()
   const [showRestoreModal, setShowRestoreModal] = useState(false)
 
-  // Seed文字列からクリスタルのIdentity（波長や色）を決定する
   const identity = useMemo(() => {
     if (!selfId) return makeCrystalIdentity('fathom-loading-seed')
     return makeCrystalIdentity(selfId)
@@ -420,7 +448,6 @@ export function FathomApp() {
 
   const driftElapsedRef = useRef(0)
 
-  // Wake Lock API: 画面を暗くさせない処理
   useEffect(() => {
     const nav = navigator as any
     let wakeLock: any = null
@@ -465,7 +492,6 @@ export function FathomApp() {
     }
   }, [audio.running])
 
-  // 時間・深度の進行処理
   useEffect(() => {
     if (!settled || !audio.running) return
 
@@ -544,12 +570,30 @@ export function FathomApp() {
     triggerResonance(0.3)
   }, [audio, triggerResonance])
 
+  // 空間オーディオ対応の完全版リモート共鳴ハンドラー
   const handleRemoteResonance = useCallback((payload: ResonancePulsePayload) => {
+    // ペイロードから相手のシードと深度を抽出
+    const peerSeed = (payload as any).senderId || (payload as any).letterId || 'anonymous-tide-seed'
+    const peerDepth = (payload as any).depth ?? progress 
+
     const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
-    const damped = Math.max(0.06, Math.min(0.22, payload.energy * 0.42))
-    audio.triggerFrictionImpulse({ intensity: damped * 0.5 * volumeDamp, durationMs: 80, color: 0.72 })
+    const damped = Math.max(0.1, Math.min(0.4, payload.energy * 0.6)) * volumeDamp
+
+    // 1. 新しいオーディオエンジンを叩き、Pan値（-1.0〜1.0）を受け取る
+    const panValue = audio.triggerSpatialResonance(peerSeed, peerDepth, damped)
+    
+    // 2. 自分のクリスタルを少し明滅させる
     triggerResonance(damped)
-  }, [audio, triggerResonance, fathomMode])
+
+    // 3. 音の方向（Pan値）に合わせて画面のフチを光らせる
+    const rippleId = Date.now() + Math.random()
+    setRipples(prev => [...prev, { id: rippleId, pan: panValue }])
+    
+    // 音の余韻に合わせて3.5秒後に光を消す
+    setTimeout(() => {
+      setRipples(prev => prev.filter(r => r.id !== rippleId))
+    }, 3500)
+  }, [audio, triggerResonance, fathomMode, progress])
 
   const {
     status, liveLetters, archive, activeLetter, presenceCount, archiveLoading, latestHeatmapPulse,
@@ -633,7 +677,6 @@ export function FathomApp() {
 
   const currentPressure = (1 + progress * 10).toFixed(2)
 
-  // 🚨 Seedの読み込みが完了するまでは真っ黒な画面（ロード画面）で待機
   if (isSeedLoading || !selfId) {
     return (
        <main className="scene-root" style={{ background: '#02050a' }}>
@@ -648,7 +691,6 @@ export function FathomApp() {
     <main className="scene-root" style={{ background: '#02050a' }}>
       <style>{hudStyles}</style>
 
-      {/* 🚨 記憶復帰モーダル */}
       {showRestoreModal && (
         <RestoreMemoryModal 
           onClose={() => setShowRestoreModal(false)} 
@@ -675,11 +717,13 @@ export function FathomApp() {
 
       <div className="scene-vignette" />
 
+      {/* 空間オーディオに連動する発光レイヤー */}
+      <EdgeResonanceOverlay ripples={ripples} />
+
       <div className="fathom-logo" style={{ opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity) }}>
         F A T H O M
       </div>
 
-      {/* 🚨 新しいチューニング用のエントランスUI */}
       {beaconMounted ? (
         <BeaconTuningStage 
           onDescend={handleDescend} 

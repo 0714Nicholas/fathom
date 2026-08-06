@@ -1,622 +1,211 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import * as THREE from 'three'
+import { useEffect, useRef, useState, useCallback } from 'react'
 
-export type FrictionImpulseOptions = {
-  intensity?: number
-  durationMs?: number
-  color?: number
+// --- ユーティリティ ---
+function hashCode(str: string) {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i)
+    hash |= 0
+  }
+  return hash
 }
 
-export type UseDeepSeaAudioOptions = {
-  enabled: boolean
-  progress: number
-  windSpeed: number
-  rainAmount: number
-  descent?: number
-  workletUrl?: string
-  shallowCutoff?: number
-  deepCutoff?: number
+// 深海の「果てしない残響（洞窟の反響）」をプログラムで生成する
+function createAbyssalReverb(ctx: AudioContext, duration: number = 4.0, decay: number = 3.0) {
+  const length = ctx.sampleRate * duration
+  const buffer = ctx.createBuffer(2, length, ctx.sampleRate)
+  for (let c = 0; c < 2; c++) {
+    const data = buffer.getChannelData(c)
+    for (let i = 0; i < length; i++) {
+      // 指数関数的に減衰するノイズでインパルス応答をシミュレート
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay)
+    }
+  }
+  return buffer
 }
 
-export type DeepSeaAudioController = {
-  ready: boolean
-  running: boolean
-  meter: number
-  start: () => Promise<void>
-  resume: () => Promise<void>
-  suspend: () => Promise<void>
-  stop: () => Promise<void>
-  triggerFrictionImpulse: (options?: FrictionImpulseOptions) => void
-}
-
-type AudioGraphRefs = {
-  ctx: AudioContext | null
-  node: AudioWorkletNode | null
-  lowpass: BiquadFilterNode | null
-  compressor: DynamicsCompressorNode | null
-  master: GainNode | null
-  delayNode: DelayNode | null
-  surfaceSource: AudioBufferSourceNode | null
-  surfaceGain: GainNode | null
-}
-
-const SILENT_WAV = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
-
-const { lerp, clamp } = THREE.MathUtils;
-
-function expInterpolate(from: number, to: number, t: number) {
-  const safeFrom = Math.max(1, from)
-  const safeTo = Math.max(1, to)
-  return Math.exp(Math.log(safeFrom) + (Math.log(safeTo) - Math.log(safeFrom)) * t)
-}
-
-function mapToCutoff(progress: number, descent: number, shallowCutoff: number, deepCutoff: number) {
-  const surface = Math.max(shallowCutoff * 2.4, 5400)
-  const startCutoff = expInterpolate(surface, shallowCutoff, clamp(descent, 0, 1))
-  return expInterpolate(startCutoff, deepCutoff, clamp(progress, 0, 1))
-}
-
-function mapWindToLfoRate(windSpeed: number) {
-  return lerp(0.1, 0.3, clamp(windSpeed / 18, 0, 1))
-}
-
-function mapRainToPinkLevel(rainAmount: number) {
-  return lerp(0.42, 0.74, clamp(rainAmount / 10, 0, 1))
-}
-
-function mapWeatherToBaseGain(windSpeed: number, rainAmount: number, descent: number) {
-  const wind = clamp(windSpeed / 20, 0, 1)
-  const rain = clamp(rainAmount / 10, 0, 1)
-  const base = 0.12 + wind * 0.03 + rain * 0.03
-  const descentScale = lerp(0.5, 1.0, clamp(descent, 0, 1))
-  return base * descentScale
-}
-
-function mapWeatherToLfoDepth(windSpeed: number, rainAmount: number, descent: number) {
-  const wind = clamp(windSpeed / 18, 0, 1)
-  const rain = clamp(rainAmount / 10, 0, 1)
-  const base = clamp(0.14 + wind * 0.08 + rain * 0.08, 0.12, 0.34)
-  return base * lerp(0.6, 1.0, clamp(descent, 0, 1))
-}
-
-function setKRateParam(node: AudioWorkletNode | null, name: string, value: number, now: number, timeConstant = 0.25) {
-  const param = node?.parameters.get(name)
-  if (!param) return
-  param.cancelScheduledValues(now)
-  param.setTargetAtTime(value, now, timeConstant)
-}
-
-export function useDeepSeaAudio({
-  enabled,
-  progress,
-  windSpeed,
-  rainAmount,
-  descent = 1,
-  workletUrl = '/audio/deep-sea-worklet.js',
-  shallowCutoff = 2200,
-  deepCutoff = 85,
-}: UseDeepSeaAudioOptions): DeepSeaAudioController {
-  const graphRef = useRef<AudioGraphRefs>({
-    ctx: null, node: null, lowpass: null, compressor: null, master: null, delayNode: null, surfaceSource: null, surfaceGain: null,
-  })
-
-  const dummyAudioRef = useRef<HTMLAudioElement | null>(null)
-
-  const timersRef = useRef<{ bubble: number; whale: number; crackle: number }>({ bubble: 0, whale: 0, crackle: 0 })
-
-  const cutoffRef = useRef<number>(shallowCutoff)
-  const [ready, setReady] = useState(false)
+export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, windSpeed: number, rainAmount: number, descent: number }) {
+  const ctxRef = useRef<AudioContext | null>(null)
   const [running, setRunning] = useState(false)
-  const [meter, setMeter] = useState(0)
+  
+  const masterGainRef = useRef<GainNode | null>(null)
+  const reverbNodeRef = useRef<ConvolverNode | null>(null)
+  const reverbGainRef = useRef<GainNode | null>(null)
+  
+  const bgmFilterRef = useRef<BiquadFilterNode | null>(null)
+  const bgmOscRef = useRef<OscillatorNode | null>(null)
 
-  const desiredCutoff = useMemo(
-    () => mapToCutoff(progress, descent, shallowCutoff, deepCutoff),
-    [deepCutoff, descent, progress, shallowCutoff]
-  )
-
-  const crackleNoiseBuffer = useMemo(() => {
-    if (typeof window === 'undefined') return null;
-    const ctx = new AudioContext({ latencyHint: 'interactive' });
-    const bufferSize = ctx.sampleRate * 0.1 
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
-    const output = buffer.getChannelData(0)
-    for (let i = 0; i < bufferSize; i++) {
-      output[i] = Math.random() * 2 - 1 
-    }
-    let lastOut = 0;
-    for (let i = 0; i < bufferSize; i++) {
-      const white = output[i];
-      output[i] = (lastOut + (0.02 * white)) / 1.02;
-      lastOut = output[i];
-      output[i] *= 3.5; 
-    }
-    return buffer;
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    const audio = new Audio(SILENT_WAV)
-    audio.loop = true
-    // 🚨 修正：TypeScriptエラーを回避するため setAttribute を使用
-    audio.setAttribute('playsinline', 'true') 
-    dummyAudioRef.current = audio
-
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: '潜行中...',
-        artist: 'F A T H O M',
-        album: 'Deep Sea Sanctuary',
-        artwork: [
-          { src: '/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512x512.png', sizes: '512x512', type: 'image/png' }
-        ]
-      })
-      navigator.mediaSession.setActionHandler('play', () => {})
-      navigator.mediaSession.setActionHandler('pause', () => {})
-    }
-  }, [])
-
-
-  const createGraph = useCallback(async () => {
-    if (graphRef.current.ctx) return graphRef.current
-
-    const ctx = new AudioContext({ latencyHint: 'interactive' })
-
-    if (!('audioWorklet' in ctx)) {
-      throw new Error('AudioWorklet is not supported in this browser.')
-    }
-
-    await ctx.audioWorklet.addModule(workletUrl)
-
-    const node = new AudioWorkletNode(ctx, 'deep-sea-noise-processor', {
-      numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers',
-    })
-
-    const lowpass = ctx.createBiquadFilter()
-    lowpass.type = 'lowpass'
-    lowpass.frequency.value = Math.max(shallowCutoff * 2.4, 5400)
-    lowpass.Q.value = 0.72
-
-    const compressor = ctx.createDynamicsCompressor()
-    compressor.threshold.value = -28
-    compressor.knee.value = 16
-    compressor.ratio.value = 2.5
-    compressor.attack.value = 0.02
-    compressor.release.value = 0.18
-
-    const master = ctx.createGain()
-    master.gain.value = 0.0001
-
-    const delayNode = ctx.createDelay(5.0)
-    delayNode.delayTime.value = 1.2 
-    const delayFeedback = ctx.createGain()
-    delayFeedback.gain.value = 0.45 
-
-    delayNode.connect(delayFeedback)
-    delayFeedback.connect(delayNode)
-    delayNode.connect(lowpass)
-
-    const bufferSize = ctx.sampleRate * 2
-    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
-    const output = noiseBuffer.getChannelData(0)
-    for (let i = 0; i < bufferSize; i++) {
-      output[i] = Math.random() * 2 - 1 
-    }
-    const surfaceSource = ctx.createBufferSource()
-    surfaceSource.buffer = noiseBuffer
-    surfaceSource.loop = true
-
-    const surfaceFilter = ctx.createBiquadFilter()
-    surfaceFilter.type = 'bandpass'
-    surfaceFilter.frequency.value = 1200 
-    surfaceFilter.Q.value = 0.5
-
-    const surfaceGain = ctx.createGain()
-    surfaceGain.gain.value = 0.0
-
-    const waveLfo = ctx.createOscillator()
-    waveLfo.type = 'sine'
-    waveLfo.frequency.value = 0.15 
-    const waveLfoGain = ctx.createGain()
-    waveLfoGain.gain.value = 800 
-    waveLfo.connect(waveLfoGain)
-    waveLfoGain.connect(surfaceFilter.frequency)
-
-    surfaceSource.connect(surfaceFilter)
-    surfaceFilter.connect(surfaceGain)
-    surfaceGain.connect(master)
-
-    surfaceSource.start()
-    waveLfo.start()
-
-    node.connect(lowpass)
-    lowpass.connect(compressor)
-    compressor.connect(master)
-    master.connect(ctx.destination)
-
-    node.port.onmessage = (event) => {
-      const msg = event.data
-      if (!msg || typeof msg !== 'object') return
-      if (msg.type === 'meter') {
-        setMeter(typeof msg.value === 'number' ? msg.value : 0)
-      }
-    }
-
-    graphRef.current = { ctx, node, lowpass, compressor, master, delayNode, surfaceSource, surfaceGain }
-    cutoffRef.current = lowpass.frequency.value
-    setReady(true)
-    return graphRef.current
-  }, [shallowCutoff, workletUrl])
-
-  const playBubble = useCallback(() => {
-    const { ctx, lowpass, delayNode } = graphRef.current
-    if (!ctx || !lowpass || !delayNode || ctx.state !== 'running') return
-
-    const bubbleCount = Math.floor(Math.random() * 3) + 1
+  const initAudio = useCallback(() => {
+    if (ctxRef.current) return
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioContextClass) return
     
-    for (let i = 0; i < bubbleCount; i++) {
-      const timeOffset = i * (0.1 + Math.random() * 0.1)
-      
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = 'sine'
-      
-      const t = ctx.currentTime + timeOffset
-      const startFreq = 150 + Math.random() * 150 
-      const endFreq = startFreq * (2.0 + Math.random() * 1.5) 
-      
-      osc.frequency.setValueAtTime(startFreq, t)
-      osc.frequency.exponentialRampToValueAtTime(endFreq, t + 0.08)
+    const ctx = new AudioContextClass()
+    ctxRef.current = ctx
 
-      gain.gain.setValueAtTime(0, t)
-      gain.gain.linearRampToValueAtTime(0.15 + Math.random() * 0.1, t + 0.01)
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15)
+    // マスターゲイン
+    const master = ctx.createGain()
+    master.gain.value = 0.8
+    master.connect(ctx.destination)
+    masterGainRef.current = master
 
-      osc.connect(gain)
-      gain.connect(lowpass) 
-      gain.connect(delayNode) 
+    // 🚨 3D空間リバーブの構築
+    const reverb = ctx.createConvolver()
+    reverb.buffer = createAbyssalReverb(ctx, 6.0, 4.0) // 6秒の長く冷たい残響
+    reverbNodeRef.current = reverb
 
-      osc.start(t)
-      osc.stop(t + 0.2)
-    }
-  }, [])
+    const reverbGain = ctx.createGain()
+    reverbGain.gain.value = 0.5 // 初期残響量
+    reverb.connect(reverbGain)
+    reverbGain.connect(master)
+    reverbGainRef.current = reverbGain
 
-  const playWhale = useCallback(() => {
-    const { ctx, lowpass, delayNode } = graphRef.current
-    if (!ctx || !lowpass || !delayNode || ctx.state !== 'running') return
+    // 環境音（持続する重低音ノイズ）の初期化
+    const bgmFilter = ctx.createBiquadFilter()
+    bgmFilter.type = 'lowpass'
+    bgmFilter.frequency.value = 100
+    bgmFilter.connect(master)
+    bgmFilterRef.current = bgmFilter
 
     const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
     osc.type = 'sine'
-    
-    const t = ctx.currentTime
-    const duration = 3.0 + Math.random() * 3.0
-    const baseFreq = 90 + Math.random() * 60 
-    
-    osc.frequency.setValueAtTime(baseFreq, t)
-    osc.frequency.linearRampToValueAtTime(baseFreq + (Math.random() * 30 - 15), t + duration)
+    osc.frequency.value = 40
+    osc.connect(bgmFilter)
+    osc.start()
+    bgmOscRef.current = osc
 
-    gain.gain.setValueAtTime(0, t)
-    gain.gain.linearRampToValueAtTime(0.12, t + duration * 0.4)
-    gain.gain.exponentialRampToValueAtTime(0.001, t + duration)
-
-    osc.connect(gain)
-    gain.connect(lowpass)
-    gain.connect(delayNode)
-
-    osc.start(t)
-    osc.stop(t + duration)
-  }, [])
-
-  const playCrackle = useCallback(() => {
-    const { ctx, lowpass, delayNode } = graphRef.current
-    if (!ctx || !lowpass || !delayNode || ctx.state !== 'running' || !crackleNoiseBuffer) return
-
-    const source = ctx.createBufferSource();
-    source.buffer = crackleNoiseBuffer;
-    
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    
-    const t = ctx.currentTime;
-    const evolutionRatio = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
-    
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(lerp(1000, 3000, evolutionRatio), t);
-    filter.Q.setValueAtTime(lerp(1.0, 5.0, evolutionRatio), t);
-
-    const startGain = lerp(0.01, 0.05, evolutionRatio); 
-    const duration = lerp(0.01, 0.03, evolutionRatio); 
-    
-    gain.gain.setValueAtTime(0, t)
-    gain.gain.linearRampToValueAtTime(startGain, t + 0.001) 
-    gain.gain.exponentialRampToValueAtTime(0.001, t + duration) 
-
-    source.connect(filter)
-    filter.connect(gain)
-    gain.connect(lowpass) 
-
-    source.start(t)
-    source.stop(t + duration)
-  }, [crackleNoiseBuffer, progress])
-
-
-  const scheduleEvents = useCallback(() => {
-    const scheduleNextBubble = () => {
-      const nextTime = Math.random() * 8000 + 4000 
-      timersRef.current.bubble = window.setTimeout(() => {
-        playBubble()
-        scheduleNextBubble()
-      }, nextTime)
-    }
-
-    const scheduleNextWhale = () => {
-      const nextTime = Math.random() * 25000 + 15000 
-      timersRef.current.whale = window.setTimeout(() => {
-        playWhale()
-        scheduleNextWhale()
-      }, nextTime)
-    }
-
-    const scheduleNextCrackle = () => {
-      if (progress > 0.5) {
-        playCrackle()
-        const evolutionRatio = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
-        const nextTime = lerp(2000, 200, evolutionRatio) + Math.random() * 500; 
-        timersRef.current.crackle = window.setTimeout(scheduleNextCrackle, nextTime)
-      } else {
-        window.clearTimeout(timersRef.current.crackle);
-        timersRef.current.crackle = 0;
-      }
-    }
-
-    scheduleNextBubble()
-    scheduleNextWhale()
-    scheduleNextCrackle();
-
-  }, [playBubble, playWhale, playCrackle, progress])
-
-  const clearEvents = useCallback(() => {
-    window.clearTimeout(timersRef.current.bubble)
-    window.clearTimeout(timersRef.current.whale)
-    window.clearTimeout(timersRef.current.crackle)
-    timersRef.current = { bubble: 0, whale: 0, crackle: 0 }
-  }, [])
-
-  const applyDynamicParams = useCallback(() => {
-    const { ctx, node, surfaceGain, master } = graphRef.current
-    if (!ctx || !node) return
-
-    const now = ctx.currentTime
-
-    const silenceStart = 0.9;
-    const silenceEnd = 1.0;
-    const silenceRatio = THREE.MathUtils.clamp((progress - silenceStart) / (silenceEnd - silenceStart), 0, 1);
-    const silenceGain = 1.0 - silenceRatio; 
-
-    const basePink = mapRainToPinkLevel(rainAmount);
-    const depthPink = lerp(basePink, basePink * 0.1, progress); 
-
-    const depthBrown = lerp(0.5, 3.5, Math.pow(progress, 2)); 
-
-    const baseLfoRate = mapWindToLfoRate(windSpeed);
-    const depthLfoRate = lerp(baseLfoRate, baseLfoRate * 0.15, progress); 
-
-    const baseLfoDepth = mapWeatherToLfoDepth(windSpeed, rainAmount, descent);
-    const depthLfoDepth = lerp(baseLfoDepth, baseLfoDepth * 2.0, progress); 
-
-    const baseGainVal = mapWeatherToBaseGain(windSpeed, rainAmount, descent) * silenceGain;
-    const stereoWidth = clamp(0.08 + windSpeed / 40, 0.08, 0.32)
-    const drift = clamp(0.03 + rainAmount / 40, 0.03, 0.18)
-
-    setKRateParam(node, 'pinkLevel', depthPink, now, 0.25)
-    setKRateParam(node, 'brownLevel', depthBrown, now, 0.25)
-    setKRateParam(node, 'baseGain', baseGainVal, now, 0.35)
-    setKRateParam(node, 'lfoRate', depthLfoRate, now, 0.45)
-    setKRateParam(node, 'lfoDepth', depthLfoDepth, now, 0.45)
-    setKRateParam(node, 'stereoWidth', stereoWidth, now, 0.6)
-    setKRateParam(node, 'drift', drift, now, 0.6)
-
-    if (surfaceGain) {
-      const surfaceDepthFade = Math.max(0, 1.0 - (progress / 0.35))
-      const windVolume = clamp(windSpeed / 15, 0.2, 1.0)
-      const surfaceTargetGain = 0.12 * surfaceDepthFade * windVolume * clamp(descent, 0, 1) * silenceGain;
-      surfaceGain.gain.setTargetAtTime(surfaceTargetGain, now, 0.5)
-    }
-
-    if (master) {
-      const targetMasterGain = lerp(0.95, 0.0, silenceRatio);
-      master.gain.setTargetAtTime(targetMasterGain, now, 0.5);
-    }
-
-  }, [descent, progress, rainAmount, windSpeed])
-
-  const applyCutoff = useCallback(() => {
-    const { ctx, lowpass } = graphRef.current
-    if (!ctx || !lowpass) return
-
-    const now = ctx.currentTime
-    const target = clamp(desiredCutoff, 40, 24000)
-    const current = clamp(cutoffRef.current, 40, 24000)
-
-    lowpass.frequency.cancelScheduledValues(now)
-    lowpass.frequency.setValueAtTime(current, now)
-    lowpass.frequency.exponentialRampToValueAtTime(target, now + 0.85)
-
-    const qTarget = lerp(0.6, 2.5, clamp(progress, 0, 1))
-    lowpass.Q.cancelScheduledValues(now)
-    lowpass.Q.setTargetAtTime(qTarget, now, 0.45)
-
-    cutoffRef.current = target
-  }, [desiredCutoff, progress])
-
-  const start = useCallback(async () => {
-    const graph = await createGraph()
-    const { ctx, master } = graph
-    if (!ctx || !master) return
-
-    if (dummyAudioRef.current) {
-      dummyAudioRef.current.play().catch(() => console.warn('Background lock audio blocked'))
-    }
-
-    if (ctx.state !== 'running') await ctx.resume()
-
-    const now = ctx.currentTime
-    master.gain.cancelScheduledValues(now)
-    master.gain.setValueAtTime(master.gain.value || 0.0001, now)
-    master.gain.exponentialRampToValueAtTime(0.95, now + 1.2)
-
-    applyDynamicParams()
-    applyCutoff()
-    scheduleEvents()
     setRunning(true)
-  }, [applyCutoff, applyDynamicParams, createGraph, scheduleEvents])
+  }, [])
 
   const resume = useCallback(async () => {
-    const graph = await createGraph()
-    if (!graph.ctx || !graph.master) return
-
-    if (dummyAudioRef.current) {
-      dummyAudioRef.current.play().catch(() => console.warn('Background lock audio blocked'))
+    if (!ctxRef.current) initAudio()
+    if (ctxRef.current?.state === 'suspended') {
+      await ctxRef.current.resume()
     }
-
-    if (graph.ctx.state !== 'running') await graph.ctx.resume()
-
-    const now = graph.ctx.currentTime
-    graph.master.gain.cancelScheduledValues(now)
-    graph.master.gain.setValueAtTime(Math.max(graph.master.gain.value, 0.0001), now)
-    graph.master.gain.exponentialRampToValueAtTime(0.95, now + 0.8)
-
-    applyDynamicParams()
-    applyCutoff()
-    scheduleEvents() 
     setRunning(true)
-  }, [applyCutoff, applyDynamicParams, createGraph, scheduleEvents])
+  }, [initAudio])
 
   const suspend = useCallback(async () => {
-    const { ctx, master } = graphRef.current
-    if (!ctx || !master) return
-
-    if (dummyAudioRef.current) dummyAudioRef.current.pause()
-
-    const now = ctx.currentTime
-    master.gain.cancelScheduledValues(now)
-    master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), now)
-    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.45)
-
-    clearEvents() 
-
-    window.setTimeout(async () => {
-      if (ctx.state === 'running') await ctx.suspend()
-      setRunning(false)
-    }, 500)
-  }, [clearEvents])
-
-  const stop = useCallback(async () => {
-    const { ctx, node, lowpass, compressor, master, delayNode, surfaceSource } = graphRef.current
-    if (!ctx) return
-
-    if (dummyAudioRef.current) dummyAudioRef.current.pause()
-
-    const now = ctx.currentTime
-    if (master) {
-      master.gain.cancelScheduledValues(now)
-      master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), now)
-      master.gain.exponentialRampToValueAtTime(0.0001, now + 0.35)
+    if (ctxRef.current?.state === 'running') {
+      await ctxRef.current.suspend()
     }
-
-    clearEvents() 
-
-    await new Promise((r) => setTimeout(r, 400))
-
-    try {
-      surfaceSource?.stop()
-      surfaceSource?.disconnect()
-      node?.disconnect()
-      lowpass?.disconnect()
-      compressor?.disconnect()
-      master?.disconnect()
-      delayNode?.disconnect()
-      await ctx.close()
-    } finally {
-      graphRef.current = { ctx: null, node: null, lowpass: null, compressor: null, master: null, delayNode: null, surfaceSource: null, surfaceGain: null }
-      cutoffRef.current = shallowCutoff
-      setReady(false)
-      setRunning(false)
-      setMeter(0)
-    }
-  }, [clearEvents, shallowCutoff])
-
-  const triggerFrictionImpulse = useCallback((options?: FrictionImpulseOptions) => {
-    const { ctx, node, lowpass, delayNode } = graphRef.current
-    
-    if (node) {
-      node.port.postMessage({
-        type: 'friction',
-        intensity: options?.intensity ?? 0.42,
-        durationMs: options?.durationMs ?? 140,
-        color: options?.color ?? 0.82,
-      })
-    }
-
-    if (ctx && lowpass && delayNode && ctx.state === 'running') {
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.type = 'sine'
-      
-      const t = ctx.currentTime
-      const color = options?.color ?? 0.82
-      const intensity = options?.intensity ?? 0.42
-      const freq = 500 + (color * 1500) 
-
-      osc.frequency.setValueAtTime(freq + 400, t)
-      osc.frequency.exponentialRampToValueAtTime(freq, t + 0.05)
-
-      gain.gain.setValueAtTime(0, t)
-      gain.gain.linearRampToValueAtTime(Math.min(intensity * 0.6, 1.0), t + 0.01)
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25)
-
-      osc.connect(gain)
-      gain.connect(lowpass)
-      gain.connect(delayNode) 
-
-      osc.start(t)
-      osc.stop(t + 0.3)
-    }
+    setRunning(false)
   }, [])
 
-  useEffect(() => {
-    if (!ready) return
-    applyDynamicParams()
-  }, [applyDynamicParams, ready])
+  const start = resume
 
+  // 深度（progress）に応じて環境音とリバーブ（空間の広がり）を変化させる
   useEffect(() => {
-    if (!ready) return
-    applyCutoff()
-  }, [applyCutoff, ready])
+    if (!ctxRef.current || !bgmFilterRef.current || !reverbGainRef.current) return
+    const ctx = ctxRef.current
+    
+    // 深く潜るほど、水圧でノイズが重くなり、残響（広がり）が深くなる
+    const targetFreq = 100 + (1 - opts.progress) * 300
+    bgmFilterRef.current.frequency.setTargetAtTime(targetFreq, ctx.currentTime, 1.0)
+    
+    const targetReverb = 0.2 + (opts.progress * 0.9) // 深度100%で最強のリバーブ
+    reverbGainRef.current.gain.setTargetAtTime(targetReverb, ctx.currentTime, 1.0)
+  }, [opts.progress])
 
-  useEffect(() => {
-    if (ready && running && progress > 0.5) {
-      if (timersRef.current.crackle === 0) {
-        // scheduleNextCrackle is handled in scheduleEvents
-      }
+  // （既存）自分自身のUI操作音
+  const triggerFrictionImpulse = useCallback((payload: { intensity: number, durationMs: number, color: number }) => {
+    if (!ctxRef.current || !masterGainRef.current || !reverbNodeRef.current) return
+    const ctx = ctxRef.current
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(150 + payload.color * 200, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + payload.durationMs / 1000)
+    
+    gain.gain.setValueAtTime(0, ctx.currentTime)
+    gain.gain.linearRampToValueAtTime(payload.intensity * 0.5, ctx.currentTime + 0.05)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + payload.durationMs / 1000)
+    
+    osc.connect(gain)
+    gain.connect(masterGainRef.current)
+    gain.connect(reverbNodeRef.current) 
+    
+    osc.start()
+    osc.stop(ctx.currentTime + payload.durationMs / 1000 + 0.1)
+  }, [])
+
+  // 🚨 新規追加：他者のソナー音を立体空間に配置する（Pitch + Pan + Filter + Reverb）
+  const triggerSpatialResonance = useCallback((peerSeed: string, peerDepth: number, energy: number) => {
+    if (!ctxRef.current || !masterGainRef.current || !reverbNodeRef.current) return 0
+    const ctx = ctxRef.current
+
+    const hash = hashCode(peerSeed)
+    
+    // 1. 【Voice (音色)】 Seedから固有の周波数を決定（100Hz〜350Hz）
+    const baseFreq = 100 + (Math.abs(hash) % 250)
+
+    // 2. 【Position (定位)】 Seedから左右の位置（Pan）を固定（-1.0〜1.0）
+    const panValue = ((Math.abs(hash * 31) % 100) / 50) - 1.0
+    const panner = ctx.createStereoPanner()
+    panner.pan.value = panValue
+
+    // 3. 【Water Pressure (水圧)】 相手との「深度差」で音のくぐもりを計算
+    const depthDiff = peerDepth - opts.progress 
+    let cutoff = 3000
+    if (depthDiff > 0) {
+      // 相手が自分より「深い」場合：高音域が削られ、重く鈍い音になる
+      cutoff = Math.max(150, 3000 - (depthDiff * 5000)) 
+    } else if (depthDiff < 0) {
+      // 相手が自分より「浅い」場合：少し高音域が抜ける
+      cutoff = Math.min(5000, 3000 + (Math.abs(depthDiff) * 3000))
     }
-  }, [progress, ready, running])
+    
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.value = cutoff
+    filter.Q.value = 2.0 // レゾナンスを少し強めにして「水中の反響感」を出す
 
-  useEffect(() => {
-    if (!enabled) return
-  }, [enabled])
+    // 音源の生成
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(baseFreq, ctx.currentTime)
+    // ソナー特有の「ピォォォン…」という下降フォールを付ける
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.7, ctx.currentTime + 1.2)
+    
+    // 音量エンベロープ（ぽわん、と鳴って消える）
+    const maxVol = Math.max(0.1, Math.min(0.8, energy))
+    gain.gain.setValueAtTime(0, ctx.currentTime)
+    gain.gain.linearRampToValueAtTime(maxVol, ctx.currentTime + 0.1)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.5)
+    
+    // ルーティング: Osc -> Gain -> Filter(水圧) -> Panner(定位)
+    osc.connect(gain)
+    gain.connect(filter)
+    filter.connect(panner)
+    
+    // マスター出力へ
+    panner.connect(masterGainRef.current)
+    
+    // 🚨 洞窟のリバーブ（残響）空間にも音波を流し込む
+    const sendToReverb = ctx.createGain()
+    sendToReverb.gain.value = 0.9 // 残響へのセンド量
+    panner.connect(sendToReverb)
+    sendToReverb.connect(reverbNodeRef.current)
 
-  useEffect(() => {
-    return () => {
-      void stop()
-    }
-  }, [stop])
+    // 発音
+    osc.start()
+    osc.stop(ctx.currentTime + 3.0)
+
+    // 視覚エフェクト（画面のフチの光）と連動させるため、計算したPan値を返す
+    return panValue
+  }, [opts.progress])
 
   return {
-    ready, running, meter, start, resume, suspend, stop, triggerFrictionImpulse,
+    running,
+    start,
+    resume,
+    suspend,
+    triggerFrictionImpulse,
+    triggerSpatialResonance,
   }
 }
