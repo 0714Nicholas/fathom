@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 
-// --- ユーティリティ ---
 function hashCode(str: string) {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -12,7 +11,6 @@ function hashCode(str: string) {
   return hash
 }
 
-// 深海の「果てしない残響（洞窟の反響）」をプログラムで生成する
 function createAbyssalReverb(ctx: AudioContext, duration: number = 4.0, decay: number = 3.0) {
   const length = ctx.sampleRate * duration
   const buffer = ctx.createBuffer(2, length, ctx.sampleRate)
@@ -34,6 +32,7 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
   const reverbGainRef = useRef<GainNode | null>(null)
   
   const bgmFilterRef = useRef<BiquadFilterNode | null>(null)
+  const descentGainRef = useRef<GainNode | null>(null)
 
   const initAudio = useCallback(() => {
     if (ctxRef.current) return
@@ -43,13 +42,11 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     const ctx = new AudioContextClass()
     ctxRef.current = ctx
 
-    // マスターゲイン
     const master = ctx.createGain()
     master.gain.value = 0.8
     master.connect(ctx.destination)
     masterGainRef.current = master
 
-    // 3D空間リバーブの構築
     const reverb = ctx.createConvolver()
     reverb.buffer = createAbyssalReverb(ctx, 6.0, 4.0)
     reverbNodeRef.current = reverb
@@ -60,7 +57,7 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     reverbGain.connect(master)
     reverbGainRef.current = reverbGain
 
-    // 🚨 修正：海鳴り（ホワイトノイズ）のバッファを作成
+    // --- 1. 海鳴り（ホワイトノイズ基礎環境音） ---
     const bufferSize = ctx.sampleRate * 2
     const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
     const output = noiseBuffer.getChannelData(0)
@@ -72,15 +69,33 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     noiseSrc.buffer = noiseBuffer
     noiseSrc.loop = true
 
-    // 水圧（ローパスフィルター）の初期化
     const bgmFilter = ctx.createBiquadFilter()
     bgmFilter.type = 'lowpass'
-    bgmFilter.frequency.value = 800 // 水面付近の波の音の高さ
+    bgmFilter.frequency.value = 800
     bgmFilter.connect(master)
     bgmFilterRef.current = bgmFilter
 
     noiseSrc.connect(bgmFilter)
     noiseSrc.start()
+
+    // --- 2. 潜行時の「しゅごぉぉぉ〜」専用ノイズチャンネル ---
+    const descentNoise = ctx.createBufferSource()
+    descentNoise.buffer = noiseBuffer
+    descentNoise.loop = true
+
+    const descentFilter = ctx.createBiquadFilter()
+    descentFilter.type = 'bandpass'
+    descentFilter.frequency.value = 400
+    descentFilter.Q.value = 3.0
+
+    const descentGain = ctx.createGain()
+    descentGain.gain.value = 0 // 初期は無音
+    descentGainRef.current = descentGain
+
+    descentNoise.connect(descentFilter)
+    descentFilter.connect(descentGain)
+    descentGain.connect(master)
+    descentNoise.start()
 
     setRunning(true)
   }, [])
@@ -102,20 +117,28 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
 
   const start = resume
 
-  // 深度（progress）に応じて環境音とリバーブ（空間の広がり）を変化させる
+  // --- 潜行度（descent）に応じた「しゅごぉぉぉ〜」音のダイナミック制御 ---
+  useEffect(() => {
+    if (!ctxRef.current || !descentGainRef.current) return
+    const ctx = ctxRef.current
+    // descent（0〜1）が動いている最中に激しい水圧音を上げる
+    const targetGain = opts.descent > 0 && opts.descent < 1 ? 0.6 : 0.0
+    descentGainRef.current.gain.setTargetAtTime(targetGain, ctx.currentTime, 0.2)
+  }, [opts.descent])
+
+  // --- 深度（progress）に応じた環境音の変化 ---
   useEffect(() => {
     if (!ctxRef.current || !bgmFilterRef.current || !reverbGainRef.current) return
     const ctx = ctxRef.current
     
-    // 深く潜るほど、水圧でノイズが高音を失い「こもった海鳴り」になる
     const targetFreq = 100 + (1 - opts.progress) * 700 
     bgmFilterRef.current.frequency.setTargetAtTime(targetFreq, ctx.currentTime, 1.0)
     
-    const targetReverb = 0.2 + (opts.progress * 0.9) // 深度100%で最強のリバーブ
+    const targetReverb = 0.2 + (opts.progress * 0.9)
     reverbGainRef.current.gain.setTargetAtTime(targetReverb, ctx.currentTime, 1.0)
   }, [opts.progress])
 
-  // 自分自身のUI操作音
+  // --- クライアントUIの摩擦音（泡やインタラクション音のニュアンスを含む） ---
   const triggerFrictionImpulse = useCallback((payload: { intensity: number, durationMs: number, color: number }) => {
     if (!ctxRef.current || !masterGainRef.current || !reverbNodeRef.current) return
     const ctx = ctxRef.current
@@ -123,11 +146,13 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     const gain = ctx.createGain()
     
     osc.type = 'sine'
-    osc.frequency.setValueAtTime(150 + payload.color * 200, ctx.currentTime)
-    osc.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + payload.durationMs / 1000)
+    // 色や強度に応じて少し高めのピッチ（泡やクリックの質感）を混ぜる
+    const startFreq = 200 + payload.color * 400
+    osc.frequency.setValueAtTime(startFreq, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + payload.durationMs / 1000)
     
     gain.gain.setValueAtTime(0, ctx.currentTime)
-    gain.gain.linearRampToValueAtTime(payload.intensity * 0.5, ctx.currentTime + 0.05)
+    gain.gain.linearRampToValueAtTime(payload.intensity * 0.4, ctx.currentTime + 0.03)
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + payload.durationMs / 1000)
     
     osc.connect(gain)
@@ -138,26 +163,24 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     osc.stop(ctx.currentTime + payload.durationMs / 1000 + 0.1)
   }, [])
 
-  // 他者のソナー音を立体空間に配置する
+  // --- 空間オーディオ ＋ クジラの鳴き声のような深海の立体ソナー ---
   const triggerSpatialResonance = useCallback((peerSeed: string, peerDepth: number, energy: number) => {
     if (!ctxRef.current || !masterGainRef.current || !reverbNodeRef.current) return 0
     const ctx = ctxRef.current
 
     const hash = hashCode(peerSeed)
     
-    // 1. 【Voice (音色)】 Seedから固有の周波数を決定
-    const baseFreq = 100 + (Math.abs(hash) % 250)
+    // クジラの鳴き声を彷彿とさせる、少し低めで神秘的な周波数帯
+    const baseFreq = 80 + (Math.abs(hash) % 200)
 
-    // 2. 【Position (定位)】 Seedから左右の位置（Pan）を固定
     const panValue = ((Math.abs(hash * 31) % 100) / 50) - 1.0
     const panner = ctx.createStereoPanner()
     panner.pan.value = panValue
 
-    // 3. 【Water Pressure (水圧)】 相手との「深度差」で音のくぐもりを計算
     const depthDiff = peerDepth - opts.progress 
     let cutoff = 3000
     if (depthDiff > 0) {
-      cutoff = Math.max(150, 3000 - (depthDiff * 5000)) 
+      cutoff = Math.max(120, 3000 - (depthDiff * 5000)) 
     } else if (depthDiff < 0) {
       cutoff = Math.min(5000, 3000 + (Math.abs(depthDiff) * 3000))
     }
@@ -165,19 +188,21 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     const filter = ctx.createBiquadFilter()
     filter.type = 'lowpass'
     filter.frequency.value = cutoff
-    filter.Q.value = 2.0 
+    filter.Q.value = 3.0 
 
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     
+    // サイン波に加えて、少し有機的な揺らぎを持つ低音響
     osc.type = 'sine'
     osc.frequency.setValueAtTime(baseFreq, ctx.currentTime)
-    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.7, ctx.currentTime + 1.2)
+    // 遠くで鳴くクジラのように、ゆっくりとピッチがうねりながら下降する
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.6, ctx.currentTime + 1.8)
     
-    const maxVol = Math.max(0.1, Math.min(0.8, energy))
+    const maxVol = Math.max(0.15, Math.min(0.85, energy))
     gain.gain.setValueAtTime(0, ctx.currentTime)
-    gain.gain.linearRampToValueAtTime(maxVol, ctx.currentTime + 0.1)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.5)
+    gain.gain.linearRampToValueAtTime(maxVol, ctx.currentTime + 0.2)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3.2)
     
     osc.connect(gain)
     gain.connect(filter)
@@ -185,12 +210,12 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     panner.connect(masterGainRef.current)
     
     const sendToReverb = ctx.createGain()
-    sendToReverb.gain.value = 0.9 
+    sendToReverb.gain.value = 0.95 
     panner.connect(sendToReverb)
     sendToReverb.connect(reverbNodeRef.current)
 
     osc.start()
-    osc.stop(ctx.currentTime + 3.0)
+    osc.stop(ctx.currentTime + 3.5)
 
     return panValue
   }, [opts.progress])
