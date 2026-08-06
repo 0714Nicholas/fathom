@@ -13,13 +13,19 @@ import {
 import { useWeather } from '@/hooks/useWeather'
 import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
 import { useFathomDescent } from '@/hooks/useFathomDescent'
-import { generateFathomCoordinate, isValidFathomCoordinate, formatCoordinateForSystem } from '@/lib/identity/coordinates'
+import { isValidFathomCoordinate, formatCoordinateForSystem } from '@/lib/identity/coordinates'
 import { useFathomMemory } from '@/hooks/useFathomMemory'
+
+// 🚨 新規追加：世界の果てリストと、Auth / Seed 連携ファイル
+import { PORTS } from '@/lib/scene/ports'
+import { useSelfSeed } from '@/hooks/useSelfSeed'
+import { RestoreMemoryModal } from '@/components/auth/RestoreMemoryModal'
 
 const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'meditate' | 'focus' | 'sleep'
 
+// 🚨 CSS: 元のhudStylesにチューニング用UIのスタイルを統合
 const hudStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap');
 
@@ -81,6 +87,44 @@ const hudStyles = `
     color: rgba(255,255,255,0.3);
   }
 
+  /* --- Tuning UI Styles --- */
+  .beacon-slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.15);
+    outline: none;
+    margin: 32px 0;
+  }
+  .beacon-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 2px;
+    height: 20px;
+    background: #fff;
+    cursor: pointer;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .beacon-slider.locked::-webkit-slider-thumb {
+    background: #8fd8ff;
+    box-shadow: 0 0 12px rgba(143, 216, 255, 0.8);
+  }
+  .signal-text {
+    font-family: monospace;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: rgba(255, 255, 255, 0.5);
+    transition: color 0.4s ease, text-shadow 0.4s ease;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .signal-text.locked {
+    color: #8fd8ff;
+    text-shadow: 0 0 8px rgba(143, 216, 255, 0.4);
+  }
+
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
     .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
@@ -99,20 +143,6 @@ const hudStyles = `
     100% { opacity: 0; filter: blur(4px); }
   }
 `
-
-function useSelfId(): string {
-  const [selfId] = useState(() => {
-    if (typeof window === 'undefined') return 'server'
-    const stored = window.localStorage.getItem('fathom:self-id')
-    if (stored && isValidFathomCoordinate(stored)) {
-      return stored
-    }
-    const nextCoordinate = generateFathomCoordinate()
-    window.localStorage.setItem('fathom:self-id', nextCoordinate)
-    return nextCoordinate
-  })
-  return selfId
-}
 
 function downloadCrystalMemory(coordinate: string, depth: number) {
   const canvas = document.createElement('canvas')
@@ -201,7 +231,7 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
               padding: '8px 20px',
               borderRadius: '24px',
               border: `1px solid ${isActive ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.15)'}`,
-              background: isActive ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.3)', 
+              background: isActive ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.3)',
               color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
               transition: 'all 0.3s ease',
               letterSpacing: '0.1em',
@@ -218,116 +248,92 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
   )
 }
 
-function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCity, isLoading, onSearch }: any) {
-  const [inputVal, setInputVal] = useState('')
-  const [coordVal, setCoordVal] = useState('')
+// 🚨 新規コンポーネント：アナログチューナーによるエントランス儀式
+function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, isLoading, onSearch }: any) {
   const [mode, setMode] = useState<FathomMode>('focus')
-  const [viewState, setViewState] = useState<'new' | 'return'>('new')
-  const [coordError, setCoordError] = useState(false)
+  const [dialValue, setDialValue] = useState(50)
+  const [isDragging, setIsDragging] = useState(false)
+  const [freqStr, setFreqStr] = useState('00.0')
+  
+  const dragTimeout = useRef<number | null>(null)
+  const lastIndex = useRef<number>(-1)
+
+  useEffect(() => {
+    if (!targetCity) {
+      const initialIndex = Math.floor(Math.random() * PORTS.length)
+      setDialValue((initialIndex / (PORTS.length - 1)) * 100)
+      onSearch(PORTS[initialIndex].query)
+    }
+  }, [targetCity, onSearch])
+
+  useEffect(() => {
+    if (!isDragging) return
+    const interval = setInterval(() => {
+      setFreqStr((Math.random() * 100 + 10).toFixed(1))
+    }, 50)
+    return () => clearInterval(interval)
+  }, [isDragging])
+
+  const handleDialChange = (val: number) => {
+    setDialValue(val)
+    setIsDragging(true)
+
+    const index = Math.round((val / 100) * (PORTS.length - 1))
+    
+    if (index !== lastIndex.current) {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(10)
+      }
+      lastIndex.current = index
+    }
+
+    if (dragTimeout.current) window.clearTimeout(dragTimeout.current)
+    
+    dragTimeout.current = window.setTimeout(() => {
+      setIsDragging(false)
+      const port = PORTS[index]
+      if (targetCity !== port.query) {
+        onSearch(port.query)
+      }
+    }, 600)
+  }
 
   const containerStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    zIndex: 50,
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'flex-end', 
-    alignItems: 'center',
-    paddingBottom: '12vh', 
-    pointerEvents: 'none',
-    opacity: isLeaving ? 0 : 1,
-    transition: 'opacity 1s ease'
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 50, display: 'flex', flexDirection: 'column',
+    justifyContent: 'flex-end', alignItems: 'center',
+    paddingBottom: '10vh', pointerEvents: 'none',
+    opacity: isLeaving ? 0 : 1, transition: 'opacity 1s ease'
   }
 
   const innerStyle: React.CSSProperties = {
-    pointerEvents: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    width: '100%',
-    padding: '0 24px',
-    maxWidth: '500px'
+    pointerEvents: 'auto', display: 'flex', flexDirection: 'column',
+    alignItems: 'center', width: '100%', padding: '0 32px', maxWidth: '460px'
   }
 
-  if (viewState === 'return') {
-    return (
-      <div aria-hidden={isLeaving} style={containerStyle}>
-        <div style={innerStyle}>
-          <div className="font-mincho" style={{ fontSize: 13, marginBottom: 16, opacity: 0.8, textAlign: 'center' }}>
-            あなたの水底の座標（3つの単語）を入力してください。
-          </div>
-          <input
-            type="text"
-            value={coordVal}
-            onChange={(e) => { setCoordVal(e.target.value); setCoordError(false) }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && coordVal.trim()) {
-                const systemCoord = formatCoordinateForSystem(coordVal)
-                if (isValidFathomCoordinate(systemCoord)) onReturn(systemCoord)
-                else setCoordError(true)
-              }
-            }}
-            style={{
-              textAlign: 'center', width: '100%', maxWidth: '320px', fontSize: '16px', padding: '16px',
-              background: 'rgba(255,255,255,0.06)', border: `1px solid ${coordError ? 'rgba(255,100,100,0.4)' : 'rgba(255,255,255,0.15)'}`,
-              borderRadius: '4px', color: '#fff', outline: 'none', letterSpacing: '0.05em'
-            }}
-            placeholder="e.g. silent pale snow"
-          />
-          <div className="font-mincho" style={{ color: coordError ? '#ff8f8f' : 'inherit', marginTop: 16, fontSize: 12 }}>
-            {coordError ? '座標の記述が正しくありません。' : 'Enter を押して過去の記憶へ帰還します'}
-          </div>
-          <button type="button" className="hud-btn" onClick={() => setViewState('new')} style={{ marginTop: 32, opacity: 0.6, fontSize: 11 }}>
-            ← 新しい都市から潜る
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  if (!targetCity) {
-    return (
-      <div aria-hidden={isLeaving} style={containerStyle}>
-        <div style={innerStyle}>
-          <input
-            type="text"
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && inputVal.trim()) onSearch(inputVal.trim()) }}
-            style={{
-              textAlign: 'center', width: '100%', maxWidth: '300px', fontSize: '16px', padding: '16px',
-              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
-              borderRadius: '4px', color: '#fff', outline: 'none',
-            }}
-            placeholder="e.g. Tokyo, London, New York"
-          />
-          <div className="font-mincho" style={{ marginTop: 16, opacity: 0.8, fontSize: 13 }}>
-            都市を入力し Enter で気象を受信します
-          </div>
-          <button type="button" className="hud-btn" onClick={() => setViewState('return')} style={{ marginTop: 32, opacity: 0.6, textTransform: 'lowercase', fontSize: 11 }}>
-            return to your past fathom <span className="font-mincho">(過去の座標へ帰還)</span>
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  if (isLoading || !resolvedCity) {
-    return (
-      <div aria-hidden={isLeaving} style={containerStyle}>
-        <div style={innerStyle}>
-          <div style={{ letterSpacing: '0.15em', fontSize: '11px', fontFamily: 'monospace', opacity: 0.6 }}>resolving atmospheric data for {targetCity}...</div>
-        </div>
-      </div>
-    )
-  }
+  const isTuning = isDragging || isLoading
+  const currentPort = PORTS[Math.round((dialValue / 100) * (PORTS.length - 1))]
 
   return (
     <div aria-hidden={isLeaving} style={containerStyle}>
       <div style={innerStyle}>
-        <div className="font-mincho" style={{ marginBottom: 24, opacity: 0.8, fontSize: 13, textAlign: 'center', lineHeight: 1.8 }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 15, color: '#8fd8ff' }}>{resolvedCity}</span> の気象を受信しました。<br/>潜行の目的を選択してください。
+        
+        <div className={`signal-text ${!isTuning ? 'locked' : ''}`} style={{ marginBottom: 8 }}>
+          {isTuning ? `[ SEEKING... ${freqStr} MHz ]` : `[ SIGNAL ACQUIRED: ${currentPort.name} ]`}
         </div>
+        
+        <div className="font-mincho" style={{ fontSize: 11, opacity: isTuning ? 0 : 0.6, transition: 'opacity 0.4s ease', height: 16 }}>
+          {isTuning ? '' : currentPort.label}
+        </div>
+
+        <input
+          type="range"
+          min="0" max="100" step="0.1"
+          value={dialValue}
+          onChange={(e) => handleDialChange(parseFloat(e.target.value))}
+          onTouchStart={() => setIsDragging(true)}
+          className={`beacon-slider ${!isTuning ? 'locked' : ''}`}
+        />
 
         <ModeSelector current={mode} onSelect={setMode} />
 
@@ -335,20 +341,26 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
           type="button" 
           className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} 
           onClick={() => onDescend(mode)} 
-          disabled={isLeaving}
-          style={{ 
-            position: 'relative', 
-            top: 'auto', bottom: 'auto', left: 'auto', right: 'auto', 
-            transform: 'none', 
-            margin: '8px 0' 
-          }} 
+          disabled={isLeaving || isTuning}
+          style={{ position: 'relative', margin: '8px 0', opacity: isTuning ? 0.3 : 1, transition: 'opacity 0.3s' }} 
         >
           <span className="descend-word">descend</span>
         </button>
         
-        <div style={{ marginTop: 24, letterSpacing: '0.15em', fontSize: '10px', opacity: 0.5, fontFamily: 'monospace' }}>
+        <div style={{ marginTop: 24, letterSpacing: '0.15em', fontSize: '10px', opacity: 0.4, fontFamily: 'monospace', textAlign: 'center' }}>
           press to enter the deep
         </div>
+
+        {/* 🚨 記憶の復帰モーダルを呼び出すボタン */}
+        <button 
+          type="button" 
+          className="hud-btn" 
+          onClick={onOpenRestore} 
+          disabled={isLeaving}
+          style={{ marginTop: 40, opacity: 0.6, fontSize: 10, letterSpacing: '0.15em', textTransform: 'none' }}
+        >
+          I have been here before <span className="font-mincho" style={{ opacity: 0.7 }}>（かつての記憶へ帰還）</span>
+        </button>
       </div>
     </div>
   )
@@ -378,8 +390,15 @@ export function FathomApp() {
   const [linkedPeers, setLinkedPeers] = useState<Set<string>>(new Set())
   const [linkInputError, setLinkInputError] = useState(false)
 
-  const selfId = useSelfId()
-  const identity = useMemo(() => makeCrystalIdentity(selfId), [selfId])
+  // 🚨 新規追加：Auth状態と復帰モーダルの管理
+  const { seed: selfId, isLoading: isSeedLoading, restoreSeed } = useSelfSeed()
+  const [showRestoreModal, setShowRestoreModal] = useState(false)
+
+  // Seed文字列からクリスタルのIdentity（波長や色）を決定する
+  const identity = useMemo(() => {
+    if (!selfId) return makeCrystalIdentity('fathom-loading-seed')
+    return makeCrystalIdentity(selfId)
+  }, [selfId])
 
   const descentCtl = useFathomDescent({ durationMs: 8000 })
   const { descent, phase, begin: beginDescent } = descentCtl
@@ -401,7 +420,7 @@ export function FathomApp() {
 
   const driftElapsedRef = useRef(0)
 
-  // 🚨 追加：音が鳴っている間、スマホの画面を絶対に暗くさせない（Wake Lock API）
+  // Wake Lock API: 画面を暗くさせない処理
   useEffect(() => {
     const nav = navigator as any
     let wakeLock: any = null
@@ -446,6 +465,7 @@ export function FathomApp() {
     }
   }, [audio.running])
 
+  // 時間・深度の進行処理
   useEffect(() => {
     if (!settled || !audio.running) return
 
@@ -535,7 +555,7 @@ export function FathomApp() {
     status, liveLetters, archive, activeLetter, presenceCount, archiveLoading, latestHeatmapPulse,
     sendLetter, sendResonance, dismissActive, manualPlay, buryOwnLetter,
   } = useRealtimeLetters({
-    roomId: ROOM_ID, selfId, selfName: 'visitor', city: data?.city, depth: progress, descent,
+    roomId: ROOM_ID, selfId: selfId || 'loading', selfName: 'visitor', city: data?.city, depth: progress, descent,
     currentWeatherSnapshot: weatherSnapshot, preferredLang: null, onRemoteResonance: handleRemoteResonance,
     enableFirstSurfacing: false, 
     firstSurfacingGraceMs: 1600,
@@ -606,11 +626,6 @@ export function FathomApp() {
     window.setTimeout(() => setBeaconMounted(false), 650)
   }, [audio, beginDescent, hasDescended, triggerResonance])
 
-  const handleReturn = useCallback((coordinate: string) => {
-    window.localStorage.setItem('fathom:self-id', coordinate)
-    window.location.reload()
-  }, [])
-
   const uiOpacity = useMemo(() => {
     if (fathomMode !== 'sleep' || !settled) return 1.0
     return Math.max(0.08, 1.0 - (Math.max(0, (progress - 0.25) / 0.75)) * 1.5)
@@ -618,9 +633,28 @@ export function FathomApp() {
 
   const currentPressure = (1 + progress * 10).toFixed(2)
 
+  // 🚨 Seedの読み込みが完了するまでは真っ黒な画面（ロード画面）で待機
+  if (isSeedLoading || !selfId) {
+    return (
+       <main className="scene-root" style={{ background: '#02050a' }}>
+         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.2em' }}>
+           synchronizing deep sea seed...
+         </div>
+       </main>
+    )
+  }
+
   return (
     <main className="scene-root" style={{ background: '#02050a' }}>
       <style>{hudStyles}</style>
+
+      {/* 🚨 記憶復帰モーダル */}
+      {showRestoreModal && (
+        <RestoreMemoryModal 
+          onClose={() => setShowRestoreModal(false)} 
+          onRestore={restoreSeed} 
+        />
+      )}
 
       <DeepSeaCanvas
         progress={progress}
@@ -645,8 +679,17 @@ export function FathomApp() {
         F A T H O M
       </div>
 
+      {/* 🚨 新しいチューニング用のエントランスUI */}
       {beaconMounted ? (
-        <EntranceStage onDescend={handleDescend} onReturn={handleReturn} isLeaving={beaconLeaving} targetCity={city} resolvedCity={data?.city ?? null} isLoading={loading} onSearch={(c: string) => setCity(c)} />
+        <BeaconTuningStage 
+          onDescend={handleDescend} 
+          onOpenRestore={() => setShowRestoreModal(true)}
+          isLeaving={beaconLeaving} 
+          targetCity={city} 
+          resolvedCity={data?.city ?? null} 
+          isLoading={loading} 
+          onSearch={(c: string) => setCity(c)} 
+        />
       ) : null}
 
       <div className="hud-overlay" style={{ position: 'absolute', inset: 0, zIndex: 50, opacity: uiOpacity, transition: 'opacity 2s linear', pointerEvents: 'none' }}>
