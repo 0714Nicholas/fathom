@@ -89,8 +89,6 @@ const hudStyles = `
     .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
     .hud-textarea { font-size: 16px; height: 40px; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
-    .descend-stage { padding-top: 15vh; }
-    .descend-stage input { width: 85vw !important; max-width: 320px; }
   }
 
   .fade-out-thought {
@@ -191,7 +189,7 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
     { value: 'sleep', label: 'Sleep (60m)' },
   ]
   return (
-    <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', justifyContent: 'center', maxWidth: '400px' }}>
+    <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: '400px' }}>
       {modes.map((m) => {
         const isActive = current === m.value
         return (
@@ -200,10 +198,10 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
             type="button"
             onClick={() => onSelect(m.value)}
             style={{
-              padding: '6px 18px',
+              padding: '8px 20px',
               borderRadius: '24px',
               border: `1px solid ${isActive ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.15)'}`,
-              background: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
+              background: isActive ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.3)', 
               color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
               transition: 'all 0.3s ease',
               letterSpacing: '0.1em',
@@ -227,11 +225,35 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
   const [viewState, setViewState] = useState<'new' | 'return'>('new')
   const [coordError, setCoordError] = useState(false)
 
+  const containerStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 50,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'flex-end', 
+    alignItems: 'center',
+    paddingBottom: '12vh', 
+    pointerEvents: 'none',
+    opacity: isLeaving ? 0 : 1,
+    transition: 'opacity 1s ease'
+  }
+
+  const innerStyle: React.CSSProperties = {
+    pointerEvents: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    width: '100%',
+    padding: '0 24px',
+    maxWidth: '500px'
+  }
+
   if (viewState === 'return') {
     return (
-      <div className="descend-stage" aria-hidden={isLeaving}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
-          <div className="descend-caption font-mincho" style={{ fontSize: 14 }}>
+      <div aria-hidden={isLeaving} style={containerStyle}>
+        <div style={innerStyle}>
+          <div className="font-mincho" style={{ fontSize: 13, marginBottom: 16, opacity: 0.8, textAlign: 'center' }}>
             あなたの水底の座標（3つの単語）を入力してください。
           </div>
           <input
@@ -245,18 +267,17 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
                 else setCoordError(true)
               }
             }}
-            className="input"
             style={{
-              textAlign: 'center', width: '320px', fontSize: '16px', padding: '16px',
+              textAlign: 'center', width: '100%', maxWidth: '320px', fontSize: '16px', padding: '16px',
               background: 'rgba(255,255,255,0.06)', border: `1px solid ${coordError ? 'rgba(255,100,100,0.4)' : 'rgba(255,255,255,0.15)'}`,
               borderRadius: '4px', color: '#fff', outline: 'none', letterSpacing: '0.05em'
             }}
             placeholder="e.g. silent pale snow"
           />
-          <div className="helper font-mincho" style={{ color: coordError ? '#ff8f8f' : 'inherit' }}>
+          <div className="font-mincho" style={{ color: coordError ? '#ff8f8f' : 'inherit', marginTop: 16, fontSize: 12 }}>
             {coordError ? '座標の記述が正しくありません。' : 'Enter を押して過去の記憶へ帰還します'}
           </div>
-          <button type="button" className="helper font-mincho" onClick={() => setViewState('new')} style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none' }}>
+          <button type="button" className="hud-btn" onClick={() => setViewState('new')} style={{ marginTop: 32, opacity: 0.6, fontSize: 11 }}>
             ← 新しい都市から潜る
           </button>
         </div>
@@ -266,26 +287,25 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
 
   if (!targetCity) {
     return (
-      <div className="descend-stage" aria-hidden={isLeaving}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, pointerEvents: 'auto' }}>
+      <div aria-hidden={isLeaving} style={containerStyle}>
+        <div style={innerStyle}>
           <input
             type="text"
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && inputVal.trim()) onSearch(inputVal.trim()) }}
-            className="input"
             style={{
-              textAlign: 'center', width: '300px', fontSize: '16px', padding: '16px',
+              textAlign: 'center', width: '100%', maxWidth: '300px', fontSize: '16px', padding: '16px',
               background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)',
               borderRadius: '4px', color: '#fff', outline: 'none',
             }}
             placeholder="e.g. Tokyo, London, New York"
           />
-          <div className="helper font-mincho">
+          <div className="font-mincho" style={{ marginTop: 16, opacity: 0.8, fontSize: 13 }}>
             都市を入力し Enter で気象を受信します
           </div>
-          <button type="button" className="helper" onClick={() => setViewState('return')} style={{ marginTop: 32, opacity: 0.6, cursor: 'pointer', background: 'none', border: 'none' }}>
-            <span style={{ fontFamily: 'monospace', letterSpacing: '0.1em' }}>return to your past fathom</span> <span className="font-mincho">(過去の座標へ帰還)</span>
+          <button type="button" className="hud-btn" onClick={() => setViewState('return')} style={{ marginTop: 32, opacity: 0.6, textTransform: 'lowercase', fontSize: 11 }}>
+            return to your past fathom <span className="font-mincho">(過去の座標へ帰還)</span>
           </button>
         </div>
       </div>
@@ -294,40 +314,41 @@ function EntranceStage({ onDescend, onReturn, isLeaving, targetCity, resolvedCit
 
   if (isLoading || !resolvedCity) {
     return (
-      <div className="descend-stage" aria-hidden={isLeaving}>
-        <div className="descend-caption" style={{ letterSpacing: '0.15em', pointerEvents: 'auto' }}>resolving atmospheric data for {targetCity}...</div>
+      <div aria-hidden={isLeaving} style={containerStyle}>
+        <div style={innerStyle}>
+          <div style={{ letterSpacing: '0.15em', fontSize: '11px', fontFamily: 'monospace', opacity: 0.6 }}>resolving atmospheric data for {targetCity}...</div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="descend-stage" aria-hidden={isLeaving}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto', width: '100%', padding: '0 16px' }}>
-        
-        {/* 🚨 修正：文字が絶対に横にはみ出さず、美しく2行に折り返されるように設定 */}
-        <div className="descend-caption font-mincho" style={{ 
-          marginBottom: 32, 
-          opacity: 0.8, 
-          fontSize: 14, 
-          textAlign: 'center', 
-          whiteSpace: 'normal', // nowrap を強制解除
-          lineHeight: 1.8, 
-          maxWidth: '90vw',
-          wordBreak: 'keep-all' 
-        }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 16 }}>{resolvedCity}</span> の気象を受信しました。<br/>潜行の目的を選択してください。
+    <div aria-hidden={isLeaving} style={containerStyle}>
+      <div style={innerStyle}>
+        <div className="font-mincho" style={{ marginBottom: 24, opacity: 0.8, fontSize: 13, textAlign: 'center', lineHeight: 1.8 }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 15, color: '#8fd8ff' }}>{resolvedCity}</span> の気象を受信しました。<br/>潜行の目的を選択してください。
         </div>
 
         <ModeSelector current={mode} onSelect={setMode} />
 
-        {/* 🚨 修正：ボタンと文字が干渉しないように専用の Wrapper で囲み、余白を確保 */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 16, position: 'relative' }}>
-          <button type="button" className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} onClick={() => onDescend(mode)} disabled={isLeaving}>
-            <span className="descend-word">descend</span>
-          </button>
-          <div className="descend-caption" style={{ marginTop: 24, letterSpacing: '0.15em', textAlign: 'center' }}>press to enter the deep</div>
+        <button 
+          type="button" 
+          className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} 
+          onClick={() => onDescend(mode)} 
+          disabled={isLeaving}
+          style={{ 
+            position: 'relative', 
+            top: 'auto', bottom: 'auto', left: 'auto', right: 'auto', 
+            transform: 'none', 
+            margin: '8px 0' 
+          }} 
+        >
+          <span className="descend-word">descend</span>
+        </button>
+        
+        <div style={{ marginTop: 24, letterSpacing: '0.15em', fontSize: '10px', opacity: 0.5, fontFamily: 'monospace' }}>
+          press to enter the deep
         </div>
-
       </div>
     </div>
   )
@@ -379,6 +400,51 @@ export function FathomApp() {
   const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
 
   const driftElapsedRef = useRef(0)
+
+  // 🚨 追加：音が鳴っている間、スマホの画面を絶対に暗くさせない（Wake Lock API）
+  useEffect(() => {
+    const nav = navigator as any
+    let wakeLock: any = null
+
+    const requestWakeLock = async () => {
+      if ('wakeLock' in nav && audio.running) {
+        try {
+          wakeLock = await nav.wakeLock.request('screen')
+        } catch (err: any) {
+          console.warn('Wake Lock error:', err.message)
+        }
+      }
+    }
+
+    const releaseWakeLock = async () => {
+      if (wakeLock !== null) {
+        try {
+          await wakeLock.release()
+          wakeLock = null
+        } catch (err: any) {
+          console.warn('Wake Lock release error:', err.message)
+        }
+      }
+    }
+
+    if (audio.running) {
+      requestWakeLock()
+    } else {
+      releaseWakeLock()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && audio.running) {
+        requestWakeLock()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      releaseWakeLock()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [audio.running])
 
   useEffect(() => {
     if (!settled || !audio.running) return
