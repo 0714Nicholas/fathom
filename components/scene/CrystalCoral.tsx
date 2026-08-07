@@ -6,19 +6,8 @@ import { Sphere, MeshTransmissionMaterial, Float, Environment } from '@react-thr
 import * as THREE from 'three'
 import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
 
-// 外部から渡ってくるPropsを拡張
-export type CrystalCoralProps = DeepSeaCanvasProps & {
-  isCharging?: boolean
-  turbidity?: number
-  diveTimeMs?: number
-  releaseCount?: number
-  onChargeStart?: () => void
-  onChargeStop?: () => void
-}
+export type CrystalCoralProps = DeepSeaCanvasProps
 
-// --------------------------------------------------------
-// 魂のコア（Karma）を司るWebGLシェーダー
-// --------------------------------------------------------
 const karmaVertexShader = `
   uniform float uTime;
   uniform float uAge;       
@@ -32,15 +21,12 @@ const karmaVertexShader = `
   void main() {
     vUv = uv;
     vec3 p = position;
-    
-    // 球体から正八面体へモーフ
     float l1_norm = abs(p.x) + abs(p.y) + abs(p.z);
     vec3 octahedron = (p / l1_norm) * 1.2; 
     
     vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
     
-    // 呼吸と共鳴
-    float pulse = sin(uTime * 5.0) * 0.05 * uResonance;
+    float pulse = sin(uTime * 3.0) * 0.03 * uResonance;
     morphedPos += normal * pulse;
 
     vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
@@ -48,7 +34,6 @@ const karmaVertexShader = `
     
     vWorldPosition = worldPosition.xyz;
     vViewPosition = -mvPosition.xyz;
-    
     vNormal = normalize(normalMatrix * mix(normal, normalize(octahedron), smoothstep(0.0, 1.0, uAge)));
     
     gl_Position = projectionMatrix * mvPosition;
@@ -66,7 +51,6 @@ const karmaFragmentShader = `
   varying vec3 vViewPosition;
   varying vec3 vWorldPosition;
 
-  // FBM Noise
   float hash(float n) { return fract(sin(n) * 1e4); }
   float noise(vec3 x) {
     const vec3 step = vec3(110, 241, 171);
@@ -87,28 +71,27 @@ const karmaFragmentShader = `
     vec3 normal = normalize(vNormal);
     vec3 viewDir = normalize(vViewPosition);
 
-    vec3 p = vWorldPosition * (2.0 + uRelease * 6.0) + uTime * 0.1;
+    vec3 p = vWorldPosition * 3.0 + uTime * 0.05;
     float fbmNoise = noise(p) * 0.5 + noise(p * 2.0) * 0.25;
     
     float fresnel = max(0.0, dot(normal, viewDir));
-    float interference = fresnel + (fbmNoise * uRelease * 2.0);
+    float interference = fresnel + (fbmNoise * 0.5);
     
     vec3 a = vec3(0.5); vec3 b = vec3(0.5); vec3 c = vec3(1.0);
     vec3 d = vec3(0.0, 0.33, 0.67) + (uTime * 0.05);
     
     vec3 iridescenceColor = palette(interference, a, b, c, d);
-    vec3 finalColor = mix(uBaseColor * 0.3, iridescenceColor, smoothstep(0.0, 1.0, uRelease));
     
-    finalColor += vec3(0.8, 0.9, 1.0) * uResonance * (0.4 + fbmNoise * 0.6);
+    // 🚨 白飛びを防ぐため、ベースカラーをしっかり残してノイズを馴染ませる
+    vec3 finalColor = mix(uBaseColor * 0.8, iridescenceColor * 0.6, smoothstep(0.0, 1.0, uRelease + 0.2));
+    
+    // 🚨 共鳴時（長押し解放時）のみ、淡く発光させる
+    finalColor += vec3(0.5, 0.8, 1.0) * uResonance * 0.6;
 
-    float alpha = clamp(0.9 + (uResonance * 0.1), 0.0, 1.0);
-    gl_FragColor = vec4(finalColor, alpha);
+    gl_FragColor = vec4(finalColor, 0.95);
   }
 `
 
-// --------------------------------------------------------
-// メインコンポーネント
-// --------------------------------------------------------
 export function CrystalCoral({ 
   progress = 0, windSpeed = 0, clouds = 0, rainAmount = 0, resonancePulse = 0, temp = 15,
   diveTimeMs = 0, releaseCount = 0, isCharging = false, turbidity = 0,
@@ -124,19 +107,19 @@ export function CrystalCoral({
 
   const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
   const baseEmissive = useMemo(() => {
-    const cold = new THREE.Color('#0044ff') 
-    const hot = new THREE.Color('#00ff66')  
+    const cold = new THREE.Color('#0033aa') 
+    const hot = new THREE.Color('#00aa88')  
     return new THREE.Color().lerpColors(cold, hot, colorRatio)
   }, [colorRatio])
 
   const outerColors = useMemo(() => {
-    const cold = new THREE.Color('#88ccff')
-    const hot = new THREE.Color('#88ffcc')
+    const cold = new THREE.Color('#aaddff')
+    const hot = new THREE.Color('#aaffdd')
     return new THREE.Color().lerpColors(cold, hot, colorRatio)
   }, [colorRatio])
 
-  const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.2, 0.4, clouds / 100), [clouds])
-  const waterMurkiness = useMemo(() => Math.max(0.05, THREE.MathUtils.lerp(0.05, 0.2, Math.min(rainAmount / 5, 1))), [rainAmount])
+  const lightIntensity = useMemo(() => THREE.MathUtils.lerp(0.8, 0.3, clouds / 100), [clouds])
+  const waterMurkiness = useMemo(() => Math.max(0.0, THREE.MathUtils.lerp(0.0, 0.1, Math.min(rainAmount / 5, 1))), [rainAmount])
 
   const karmaUniforms = useMemo(() => ({
     uTime: { value: 0 },
@@ -151,61 +134,54 @@ export function CrystalCoral({
       flashEnergy.current = 1.0
       prevPulse.current = resonancePulse
     }
-    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.4)
+    // 🚨 フラッシュの減衰を早めて白飛び時間を短くする
+    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 5.0)
     
     const time = state.clock.elapsedTime
     const depthHardening = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1)
 
-    // 1. コアの更新
     if (karmaMatRef.current) {
       const uniforms = karmaMatRef.current.uniforms
       uniforms.uTime.value = time
-      
-      const targetAge = Math.min(1.0, diveTimeMs / 36000000) // 例:10時間で完成
+      const targetAge = Math.min(1.0, diveTimeMs / 36000000)
       uniforms.uAge.value = THREE.MathUtils.lerp(uniforms.uAge.value, targetAge, 0.02)
-      
-      const targetRelease = Math.min(1.0, releaseCount / 100) // 例:100回で完成
+      const targetRelease = Math.min(1.0, releaseCount / 100)
       uniforms.uRelease.value = THREE.MathUtils.lerp(uniforms.uRelease.value, targetRelease, 0.02)
-      
       uniforms.uResonance.value = flashEnergy.current
 
       if (isCharging) {
-        uniforms.uBaseColor.value.lerp(new THREE.Color('#050505'), 0.1)
+        uniforms.uBaseColor.value.lerp(new THREE.Color('#020202'), 0.1)
       } else {
         uniforms.uBaseColor.value.lerp(baseEmissive, 0.05)
       }
     }
 
-    // 2. ガラスの更新
     if (outerMatRef.current) {
       const flashAtten = new THREE.Color('#ffffff') 
       outerMatRef.current.attenuationColor.lerpColors(outerColors, flashAtten, flashEnergy.current)
-
-      const baseMurkiness = waterMurkiness + (turbidity * 0.8) // 濁度の適用
+      
+      // 🚨 白濁を抑え、ガラスのように透き通らせる
+      const baseMurkiness = waterMurkiness + (turbidity * 0.5) 
       outerMatRef.current.roughness = THREE.MathUtils.lerp(outerMatRef.current.roughness, baseMurkiness, 0.1)
 
-      const baseDistortion = 0.4 + (windSpeed * 0.06) + (isCharging ? 0.5 : 0)
-      const currentTemporalDistortion = 0.2 + (windSpeed * 0.05) + flashEnergy.current * 1.5
-      outerMatRef.current.temporalDistortion = THREE.MathUtils.lerp(currentTemporalDistortion, 0.0, depthHardening)
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(baseDistortion + flashEnergy.current * 1.5, 0.8, depthHardening)
-
-      outerMatRef.current.ior = THREE.MathUtils.lerp(1.2, 1.45, depthHardening)
-      outerMatRef.current.thickness = THREE.MathUtils.lerp(1.5, 5.0, depthHardening)
+      outerMatRef.current.temporalDistortion = THREE.MathUtils.lerp(0.1 + flashEnergy.current, 0.0, depthHardening)
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(0.2 + flashEnergy.current, 0.5, depthHardening)
+      outerMatRef.current.ior = THREE.MathUtils.lerp(1.15, 1.3, depthHardening)
     }
 
-    // 3. 全体アニメーション
     if (groupRef.current) {
-      groupRef.current.rotation.y += delta * 0.15
+      groupRef.current.rotation.y += delta * 0.1
       groupRef.current.rotation.z = Math.sin(time * 0.4) * 0.05
 
-      const wobbleX = 1 + Math.sin(time * 0.7) * 0.025 + Math.sin(time * 1.3) * 0.015
-      const wobbleY = 1 + Math.cos(time * 0.8) * 0.025 + Math.cos(time * 1.4) * 0.015
-      const wobbleZ = 1 + Math.sin(time * 0.9) * 0.025 + Math.cos(time * 1.5) * 0.015
+      const wobbleX = 1 + Math.sin(time * 0.7) * 0.015
+      const wobbleY = 1 + Math.cos(time * 0.8) * 0.015
+      const wobbleZ = 1 + Math.sin(time * 0.9) * 0.015
 
-      const baseScale = 1.0 - (progress * 0.2)
-      const chargeScale = isCharging ? -0.1 : 0 
-      const flashExpand = flashEnergy.current * 0.15
-      const vibrate = isCharging ? Math.sin(time * 50) * 0.01 : 0
+      // 🚨 サイズを中央で大きく堂々としたものに設定（1.2基準）
+      const baseScale = 1.2 - (progress * 0.1)
+      const chargeScale = isCharging ? -0.05 : 0 
+      const flashExpand = flashEnergy.current * 0.05
+      const vibrate = isCharging ? Math.sin(time * 50) * 0.005 : 0
 
       groupRef.current.scale.lerp(
         new THREE.Vector3(
@@ -218,21 +194,21 @@ export function CrystalCoral({
     }
   })
 
-  // 🚨 ポインターイベント（触覚）の登録
   return (
     <group 
       ref={groupRef} 
-      scale={1.0} 
+      scale={1.2} 
       position={[0, 0, 0]}
       onPointerDown={(e) => { e.stopPropagation(); if (onChargeStart) onChargeStart(); }}
       onPointerUp={(e) => { e.stopPropagation(); if (onChargeStop) onChargeStop(); }}
       onPointerOut={(e) => { e.stopPropagation(); if (onChargeStop) onChargeStop(); }}
     >
-      <ambientLight intensity={lightIntensity * 0.5} />
-      <directionalLight position={[5, 5, 2]} intensity={lightIntensity} color="#8fd8ff" />
+      {/* 🚨 光を抑え、白飛びを防止 */}
+      <ambientLight intensity={lightIntensity * 0.4} />
+      <directionalLight position={[5, 5, 2]} intensity={lightIntensity * 0.6} color="#8fd8ff" />
       <Environment preset="night" />
 
-      <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
+      <Float speed={2} rotationIntensity={0.2} floatIntensity={0.2}>
         <Sphere args={[0.55, 64, 64]}> 
           <shaderMaterial
             ref={karmaMatRef}
@@ -241,7 +217,7 @@ export function CrystalCoral({
               vertexShader: karmaVertexShader,
               fragmentShader: karmaFragmentShader,
               transparent: true,
-              blending: THREE.AdditiveBlending,
+              blending: THREE.NormalBlending,
               depthWrite: false
             }]}
           />
@@ -251,17 +227,16 @@ export function CrystalCoral({
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={1.5}    
-          roughness={waterMurkiness}      
+          thickness={0.5}          // 🚨 屈折を薄くして中をクリアに見せる
+          roughness={0.05}         // 🚨 表面を磨き上げる
           transmission={1.0} 
-          ior={1.2}               
-          chromaticAberration={0.05}  
-          distortion={0.5}            
-          temporalDistortion={0.3}    
+          ior={1.15}               // 🚨 屈折率を下げて白飛びを防ぐ
+          chromaticAberration={0.02}  
+          distortion={0.1}            
           color="#ffffff" 
           attenuationColor={outerColors} 
-          attenuationDistance={3.0} 
-          envMapIntensity={0.8}       
+          attenuationDistance={10.0} // 🚨 光を遠くまで通す
+          envMapIntensity={0.5}       
         />
       </Sphere>
     </group>

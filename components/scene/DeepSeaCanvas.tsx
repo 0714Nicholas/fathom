@@ -4,8 +4,6 @@ import { Suspense } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { CrystalCoral } from './CrystalCoral'
 import { MarineSnow } from './MarineSnow'
-// 🚨 エラーの原因だった ResonanceField のインポートを一時的に停止
-// import { ResonanceField } from './ResonanceField'
 import { ResonanceHeatmap } from './ResonanceHeatmap'
 
 export interface DeepSeaCanvasProps {
@@ -32,20 +30,15 @@ export interface DeepSeaCanvasProps {
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
   return (
     <Canvas
-    style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }}
       camera={{ position: [0, 0, 4.5], fov: 45 }}
       dpr={[1, 2]}
+      // 🚨 背景を透明(alpha: true)にし、元の美しいHTML背景を透過させます
       gl={{ antialias: true, alpha: true, stencil: false, depth: false }}
     >
-      {/* 深海のベース空間（奥行きと霞み） */}
-      <color attach="background" args={['#02050a']} />
-      <fog attach="fog" args={['#02050a', 3, 10]} />
-
       <Suspense fallback={null}>
-        {/* メインの結晶（長押し判定を含む） */}
         <CrystalCoral {...props} />
         
-        {/* 手前のマリンスノー */}
+        {/* 🚨 fogを取り除いたことで、奥と手前のマリンスノーが鮮明に見えるようになります */}
         <MarineSnow 
           variant="near" 
           progress={props.progress || 0} 
@@ -54,7 +47,6 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
           rainAmount={props.rainAmount || 0}
           clouds={props.clouds || 0} 
         />
-        {/* 奥のマリンスノー（物理法則に従って潜行時は上がり、停止時は舞い落ちる） */}
         <MarineSnow 
           variant="far" 
           progress={props.progress || 0} 
@@ -64,13 +56,6 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
           clouds={props.clouds || 0} 
         />
         
-        {/* 🚨 ResonanceField はファイル破損のため一時的に非表示 */}
-        {/* <ResonanceField 
-          resonancePulse={props.resonancePulse || 0} 
-          resonanceEnergy={props.resonanceEnergy || 0} 
-        /> */}
-
-        {/* ヒートマップエフェクト */}
         <ResonanceHeatmap 
           latestPulse={props.heatmapPulse} 
           progress={props.progress || 0} 
