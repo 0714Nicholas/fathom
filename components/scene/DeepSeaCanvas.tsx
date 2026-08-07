@@ -25,7 +25,6 @@ export interface DeepSeaCanvasProps {
   turbidity?: number
   onChargeStart?: () => void
   onChargeStop?: () => void
-  // 🚨 チューニング連携用のPropsを追加
   tuningValue?: number
   isTuning?: boolean
 }
@@ -50,6 +49,7 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
             windSpeed={props.windSpeed || 0} 
             rainAmount={props.rainAmount || 0}
             clouds={props.clouds || 0} 
+            isSuspended={props.isSuspended} // 🚨 追加
           />
           <MarineSnow 
             variant="far" 
@@ -58,6 +58,7 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
             windSpeed={props.windSpeed || 0} 
             rainAmount={props.rainAmount || 0}
             clouds={props.clouds || 0} 
+            isSuspended={props.isSuspended} // 🚨 追加
           />
           
           <ResonanceHeatmap 
