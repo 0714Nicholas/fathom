@@ -65,6 +65,9 @@ const hudStyles = `
   .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; display: flex; flex-direction: column; align-items: flex-end; }
   .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
   
+  /* 🚨 右下のUIを整えるためのスタイル追加 */
+  .hud-bottom-right { position: absolute; bottom: 40px; right: 32px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: auto; }
+
   /* --- Tuning UI Styles --- */
   .beacon-slider {
     -webkit-appearance: none;
@@ -109,6 +112,7 @@ const hudStyles = `
     .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
+    .hud-bottom-right { bottom: 130px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
   }
 
@@ -623,26 +627,29 @@ export function FathomApp() {
         />
       )}
 
-      <DeepSeaCanvas
-        progress={progress}
-        windSpeed={windSpeed}
-        rainAmount={rainAmount}
-        clouds={clouds}
-        resonancePulse={resonancePulse}
-        resonanceEnergy={resonanceEnergy}
-        identity={identity}
-        heatmapPulse={latestHeatmapPulse as any} 
-        descent={descent}
-        temp={data?.temp ?? undefined}
-        isSuspended={!audio.running}
-        diveTimeMs={diveTimeMs}     
-        releaseCount={releaseCount} 
-        sessionPhase={sessionPhase} 
-        isCharging={isCharging}       
-        turbidity={turbidity}         
-        onChargeStart={startCharge}   
-        onChargeStop={stopCharge}     
-      />
+      {/* 🚨 追加修正: DeepSeaCanvas を強制フルスクリーンのコンテナで囲むことで、空間潰れを防ぎます */}
+      <div style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }}>
+        <DeepSeaCanvas
+          progress={progress}
+          windSpeed={windSpeed}
+          rainAmount={rainAmount}
+          clouds={clouds}
+          resonancePulse={resonancePulse}
+          resonanceEnergy={resonanceEnergy}
+          identity={identity}
+          heatmapPulse={latestHeatmapPulse as any} 
+          descent={descent}
+          temp={data?.temp ?? undefined}
+          isSuspended={!audio.running}
+          diveTimeMs={diveTimeMs}     
+          releaseCount={releaseCount} 
+          sessionPhase={sessionPhase} 
+          isCharging={isCharging}       
+          turbidity={turbidity}         
+          onChargeStart={startCharge}   
+          onChargeStop={stopCharge}     
+        />
+      </div>
 
       <div className="scene-vignette" />
 
@@ -793,14 +800,20 @@ export function FathomApp() {
               )}
             </div>
 
-            <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
-              
-              {sessionPhase === 'interval' ? (
+            {/* 🚨 無粋なテキスト（結晶に触れ…）を完全に排除 */}
+            {sessionPhase === 'interval' ? (
+              <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
                 <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.1em', marginBottom: 24 }} className="font-mincho">
                   （ 減圧中：水面で息を整えてください ）
                 </div>
-              ) : null}
+              </div>
+            ) : null}
 
+            {/* 🚨 追加修正: 右下の空白を埋めるためにSuspendボタンを配置 */}
+            <div className={`hud-bottom-right ${visibilityClass(settled, 4)}`}>
+              <div style={{ opacity: 0.3, fontSize: '9px', letterSpacing: '0.2em', marginBottom: 12, fontFamily: 'monospace' }}>
+                hold crystal to release
+              </div>
               <div style={{ display: 'flex', gap: 24 }}>
                 {!audio.running ? (
                   <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ resume ]</button>
@@ -809,6 +822,7 @@ export function FathomApp() {
                 )}
               </div>
             </div>
+
           </>
         ) : null}
       </div>

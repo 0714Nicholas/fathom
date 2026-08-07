@@ -25,7 +25,6 @@ const karmaVertexShader = `
     vec3 octahedron = (p / l1_norm) * 1.2; 
     
     vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
-    
     float pulse = sin(uTime * 3.0) * 0.03 * uResonance;
     morphedPos += normal * pulse;
 
@@ -82,13 +81,11 @@ const karmaFragmentShader = `
     
     vec3 iridescenceColor = palette(interference, a, b, c, d);
     
-    // 🚨 白飛びを防ぐため、ベースカラーをしっかり残してノイズを馴染ませる
-    vec3 finalColor = mix(uBaseColor * 0.8, iridescenceColor * 0.6, smoothstep(0.0, 1.0, uRelease + 0.2));
-    
-    // 🚨 共鳴時（長押し解放時）のみ、淡く発光させる
-    finalColor += vec3(0.5, 0.8, 1.0) * uResonance * 0.6;
+    // コアの発光を強く、かつ重厚に
+    vec3 finalColor = mix(uBaseColor, iridescenceColor * 0.8, smoothstep(0.0, 1.0, uRelease));
+    finalColor += vec3(0.4, 0.9, 1.0) * uResonance * 0.8;
 
-    gl_FragColor = vec4(finalColor, 0.95);
+    gl_FragColor = vec4(finalColor, 1.0);
   }
 `
 
@@ -105,21 +102,13 @@ export function CrystalCoral({
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
 
-  const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
-  const baseEmissive = useMemo(() => {
-    const cold = new THREE.Color('#0033aa') 
-    const hot = new THREE.Color('#00aa88')  
-    return new THREE.Color().lerpColors(cold, hot, colorRatio)
-  }, [colorRatio])
+  // 🚨 チープさを消すため、コアの色を深いシアンに設定
+  const baseEmissive = useMemo(() => new THREE.Color('#00ccff'), [])
+  // 外側の反射光
+  const outerColors = useMemo(() => new THREE.Color('#8fd8ff'), [])
 
-  const outerColors = useMemo(() => {
-    const cold = new THREE.Color('#aaddff')
-    const hot = new THREE.Color('#aaffdd')
-    return new THREE.Color().lerpColors(cold, hot, colorRatio)
-  }, [colorRatio])
-
-  const lightIntensity = useMemo(() => THREE.MathUtils.lerp(0.8, 0.3, clouds / 100), [clouds])
-  const waterMurkiness = useMemo(() => Math.max(0.0, THREE.MathUtils.lerp(0.0, 0.1, Math.min(rainAmount / 5, 1))), [rainAmount])
+  const lightIntensity = useMemo(() => THREE.MathUtils.lerp(0.8, 0.2, clouds / 100), [clouds])
+  const waterMurkiness = useMemo(() => Math.max(0.02, THREE.MathUtils.lerp(0.02, 0.15, Math.min(rainAmount / 5, 1))), [rainAmount])
 
   const karmaUniforms = useMemo(() => ({
     uTime: { value: 0 },
@@ -134,8 +123,7 @@ export function CrystalCoral({
       flashEnergy.current = 1.0
       prevPulse.current = resonancePulse
     }
-    // 🚨 フラッシュの減衰を早めて白飛び時間を短くする
-    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 5.0)
+    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 3.0)
     
     const time = state.clock.elapsedTime
     const depthHardening = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1)
@@ -143,30 +131,23 @@ export function CrystalCoral({
     if (karmaMatRef.current) {
       const uniforms = karmaMatRef.current.uniforms
       uniforms.uTime.value = time
-      const targetAge = Math.min(1.0, diveTimeMs / 36000000)
-      uniforms.uAge.value = THREE.MathUtils.lerp(uniforms.uAge.value, targetAge, 0.02)
-      const targetRelease = Math.min(1.0, releaseCount / 100)
-      uniforms.uRelease.value = THREE.MathUtils.lerp(uniforms.uRelease.value, targetRelease, 0.02)
+      uniforms.uAge.value = THREE.MathUtils.lerp(uniforms.uAge.value, Math.min(1.0, diveTimeMs / 36000000), 0.02)
+      uniforms.uRelease.value = THREE.MathUtils.lerp(uniforms.uRelease.value, Math.min(1.0, releaseCount / 100), 0.02)
       uniforms.uResonance.value = flashEnergy.current
 
       if (isCharging) {
-        uniforms.uBaseColor.value.lerp(new THREE.Color('#020202'), 0.1)
+        uniforms.uBaseColor.value.lerp(new THREE.Color('#ff0055'), 0.1) // チャージ中は危険な色に
       } else {
         uniforms.uBaseColor.value.lerp(baseEmissive, 0.05)
       }
     }
 
     if (outerMatRef.current) {
-      const flashAtten = new THREE.Color('#ffffff') 
-      outerMatRef.current.attenuationColor.lerpColors(outerColors, flashAtten, flashEnergy.current)
-      
-      // 🚨 白濁を抑え、ガラスのように透き通らせる
-      const baseMurkiness = waterMurkiness + (turbidity * 0.5) 
+      outerMatRef.current.attenuationColor.lerpColors(outerColors, new THREE.Color('#ffffff'), flashEnergy.current)
+      const baseMurkiness = waterMurkiness + (turbidity * 0.8) 
       outerMatRef.current.roughness = THREE.MathUtils.lerp(outerMatRef.current.roughness, baseMurkiness, 0.1)
-
       outerMatRef.current.temporalDistortion = THREE.MathUtils.lerp(0.1 + flashEnergy.current, 0.0, depthHardening)
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(0.2 + flashEnergy.current, 0.5, depthHardening)
-      outerMatRef.current.ior = THREE.MathUtils.lerp(1.15, 1.3, depthHardening)
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(0.3 + flashEnergy.current, 0.6, depthHardening)
     }
 
     if (groupRef.current) {
@@ -177,10 +158,10 @@ export function CrystalCoral({
       const wobbleY = 1 + Math.cos(time * 0.8) * 0.015
       const wobbleZ = 1 + Math.sin(time * 0.9) * 0.015
 
-      // 🚨 サイズを中央で大きく堂々としたものに設定（1.2基準）
-      const baseScale = 1.2 - (progress * 0.1)
-      const chargeScale = isCharging ? -0.05 : 0 
-      const flashExpand = flashEnergy.current * 0.05
+      // スケールを1.0に戻し、堂々としたサイズへ
+      const baseScale = 1.0 - (progress * 0.05)
+      const chargeScale = isCharging ? -0.08 : 0 
+      const flashExpand = flashEnergy.current * 0.08
       const vibrate = isCharging ? Math.sin(time * 50) * 0.005 : 0
 
       groupRef.current.scale.lerp(
@@ -197,15 +178,14 @@ export function CrystalCoral({
   return (
     <group 
       ref={groupRef} 
-      scale={1.2} 
+      scale={1.0} 
       position={[0, 0, 0]}
       onPointerDown={(e) => { e.stopPropagation(); if (onChargeStart) onChargeStart(); }}
       onPointerUp={(e) => { e.stopPropagation(); if (onChargeStop) onChargeStop(); }}
       onPointerOut={(e) => { e.stopPropagation(); if (onChargeStop) onChargeStop(); }}
     >
-      {/* 🚨 光を抑え、白飛びを防止 */}
-      <ambientLight intensity={lightIntensity * 0.4} />
-      <directionalLight position={[5, 5, 2]} intensity={lightIntensity * 0.6} color="#8fd8ff" />
+      <ambientLight intensity={lightIntensity * 0.3} />
+      <directionalLight position={[5, 5, 2]} intensity={lightIntensity * 0.8} color="#8fd8ff" />
       <Environment preset="night" />
 
       <Float speed={2} rotationIntensity={0.2} floatIntensity={0.2}>
@@ -227,16 +207,16 @@ export function CrystalCoral({
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={0.5}          // 🚨 屈折を薄くして中をクリアに見せる
-          roughness={0.05}         // 🚨 表面を磨き上げる
+          thickness={2.0}          // 🚨 重厚なガラスの厚み
+          roughness={0.08}         
           transmission={1.0} 
-          ior={1.15}               // 🚨 屈折率を下げて白飛びを防ぐ
-          chromaticAberration={0.02}  
-          distortion={0.1}            
-          color="#ffffff" 
-          attenuationColor={outerColors} 
-          attenuationDistance={10.0} // 🚨 光を遠くまで通す
-          envMapIntensity={0.5}       
+          ior={1.45}               // 🚨 屈折率を上げて「黒い縁」を作る（高級感）
+          chromaticAberration={0.04}  
+          distortion={0.3}            
+          color="#010204"          // 🚨 ガラス自体を暗黒に染める
+          attenuationColor="#8fd8ff" 
+          attenuationDistance={3.0} 
+          envMapIntensity={0.8}       
         />
       </Sphere>
     </group>

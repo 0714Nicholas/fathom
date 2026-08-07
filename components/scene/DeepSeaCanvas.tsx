@@ -29,39 +29,44 @@ export interface DeepSeaCanvasProps {
 
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
   return (
-    <Canvas
-      camera={{ position: [0, 0, 4.5], fov: 45 }}
-      dpr={[1, 2]}
-      // 🚨 背景を透明(alpha: true)にし、元の美しいHTML背景を透過させます
-      gl={{ antialias: true, alpha: true, stencil: false, depth: false }}
-    >
-      <Suspense fallback={null}>
-        <CrystalCoral {...props} />
-        
-        {/* 🚨 fogを取り除いたことで、奥と手前のマリンスノーが鮮明に見えるようになります */}
-        <MarineSnow 
-          variant="near" 
-          progress={props.progress || 0} 
-          descent={props.descent || 0} 
-          windSpeed={props.windSpeed || 0} 
-          rainAmount={props.rainAmount || 0}
-          clouds={props.clouds || 0} 
-        />
-        <MarineSnow 
-          variant="far" 
-          progress={props.progress || 0} 
-          descent={props.descent || 0} 
-          windSpeed={props.windSpeed || 0} 
-          rainAmount={props.rainAmount || 0}
-          clouds={props.clouds || 0} 
-        />
-        
-        <ResonanceHeatmap 
-          latestPulse={props.heatmapPulse} 
-          progress={props.progress || 0} 
-          descent={props.descent || 0} 
-        />
-      </Suspense>
-    </Canvas>
+    // 🚨 Canvasをフルスクリーンの絶対配置divで囲むことで、レイアウト潰れを完全に防ぎます
+    <div style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }}>
+      <Canvas
+        camera={{ position: [0, 0, 4.5], fov: 45 }}
+        dpr={[1, 2]}
+        // 背景色を暗黒に設定し、マリンスノーの描画を際立たせます
+        gl={{ antialias: true, alpha: false, stencil: false, depth: true }}
+      >
+        <color attach="background" args={['#02050a']} />
+        <fog attach="fog" args={['#02050a', 3, 9]} />
+
+        <Suspense fallback={null}>
+          <CrystalCoral {...props} />
+          
+          <MarineSnow 
+            variant="near" 
+            progress={props.progress || 0} 
+            descent={props.descent || 0} 
+            windSpeed={props.windSpeed || 0} 
+            rainAmount={props.rainAmount || 0}
+            clouds={props.clouds || 0} 
+          />
+          <MarineSnow 
+            variant="far" 
+            progress={props.progress || 0} 
+            descent={props.descent || 0} 
+            windSpeed={props.windSpeed || 0} 
+            rainAmount={props.rainAmount || 0}
+            clouds={props.clouds || 0} 
+          />
+          
+          <ResonanceHeatmap 
+            latestPulse={props.heatmapPulse} 
+            progress={props.progress || 0} 
+            descent={props.descent || 0} 
+          />
+        </Suspense>
+      </Canvas>
+    </div>
   )
 }
