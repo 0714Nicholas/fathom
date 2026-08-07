@@ -32,6 +32,7 @@ export interface DeepSeaCanvasProps {
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
   return (
     <Canvas
+    style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }}
       camera={{ position: [0, 0, 4.5], fov: 45 }}
       dpr={[1, 2]}
       gl={{ antialias: true, alpha: true, stencil: false, depth: false }}

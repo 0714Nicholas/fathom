@@ -795,17 +795,7 @@ export function FathomApp() {
 
             <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
               
-              {sessionPhase === 'diving' ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-                  <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.15em' }} className="font-mincho">
-                    {turbidity > 0.8 ? (
-                      <span style={{ color: 'rgba(255,100,100,0.8)' }} className="animate-pulse">深海が荒れています。静寂をお待ちください。</span>
-                    ) : (
-                      <span>（ 結晶に触れ、圧力を解放する ）</span>
-                    )}
-                  </div>
-                </div>
-              ) : sessionPhase === 'interval' ? (
+              {sessionPhase === 'interval' ? (
                 <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.1em', marginBottom: 24 }} className="font-mincho">
                   （ 減圧中：水面で息を整えてください ）
                 </div>

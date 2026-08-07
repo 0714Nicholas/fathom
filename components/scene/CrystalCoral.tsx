@@ -202,7 +202,7 @@ export function CrystalCoral({
       const wobbleY = 1 + Math.cos(time * 0.8) * 0.025 + Math.cos(time * 1.4) * 0.015
       const wobbleZ = 1 + Math.sin(time * 0.9) * 0.025 + Math.cos(time * 1.5) * 0.015
 
-      const baseScale = 0.55 - (progress * 0.03)
+      const baseScale = 2.4 - (progress * 0.2)
       const chargeScale = isCharging ? -0.1 : 0 
       const flashExpand = flashEnergy.current * 0.15
       const vibrate = isCharging ? Math.sin(time * 50) * 0.01 : 0
