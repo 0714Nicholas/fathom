@@ -6,7 +6,7 @@ import { useDeepSeaAudio } from '@/hooks/useDeepSeaAudio'
 import { useFathomMemory } from '@/hooks/useFathomMemory'
 import { useAbyssalOverload } from '@/hooks/useAbyssalOverload' // 前回作ったフック
 
-export default function FathomApp() {
+export function FathomApp() {
   // --- 状態管理 ---
   const [progress, setProgress] = useState(0) 
   const [isAudioEnabled, setIsAudioEnabled] = useState(false)
