@@ -1,202 +1,131 @@
 'use client'
 
+import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 
-type MarineSnowProps = {
-  variant: 'far' | 'near'
-  windSpeed: number
-  rainAmount: number
-  clouds: number
-  progress: number
-  /** 0..1, supplied by useFathomDescent. */
-  descent: number
-}
-
-type FieldData = {
-  positions: Float32Array
-  colors: Float32Array
-  drift: Float32Array
-  fall: Float32Array
-  count: number
-  bounds: { x: number; y: number; z: number }
-}
-
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, v))
-}
-
-function randomBetween(min: number, max: number) {
-  return min + Math.random() * (max - min)
-}
-
-function createField(
-  count: number,
-  bounds: { x: number; y: number; z: number },
-  variant: 'far' | 'near'
-): FieldData {
-  const positions = new Float32Array(count * 3)
-  const colors = new Float32Array(count * 3)
-  const drift = new Float32Array(count)
-  const fall = new Float32Array(count)
-
-  for (let i = 0; i < count; i++) {
-    const x = randomBetween(-bounds.x, bounds.x)
-    const y = randomBetween(-bounds.y, bounds.y)
-    const z = randomBetween(-bounds.z, bounds.z)
-
-    positions[i * 3 + 0] = x
-    positions[i * 3 + 1] = y
-    positions[i * 3 + 2] = z
-
-    const depthFactor = (z + bounds.z) / (bounds.z * 2)
-    const baseR = THREE.MathUtils.lerp(0.72, 0.9, depthFactor)
-    const baseG = THREE.MathUtils.lerp(0.84, 0.96, depthFactor)
-    const baseB = THREE.MathUtils.lerp(0.92, 1.0, depthFactor)
-
-    const fade =
-      variant === 'far'
-        ? THREE.MathUtils.lerp(0.45, 0.82, depthFactor)
-        : THREE.MathUtils.lerp(0.66, 1.0, depthFactor)
-
-    colors[i * 3 + 0] = baseR * fade
-    colors[i * 3 + 1] = baseG * fade
-    colors[i * 3 + 2] = baseB * fade
-
-    drift[i] = variant === 'far' ? randomBetween(0.01, 0.055) : randomBetween(0.03, 0.12)
-    fall[i] = variant === 'far' ? randomBetween(0.03, 0.11) : randomBetween(0.08, 0.2)
-  }
-
-  return { positions, colors, drift, fall, count, bounds }
-}
-
-export function MarineSnow({
-  variant,
-  windSpeed,
-  rainAmount,
-  clouds,
-  progress,
-  descent,
-}: MarineSnowProps) {
+export function MarineSnow({ variant = 'near', progress = 0, descent = 0, windSpeed = 0, rainAmount = 0, clouds = 0 }) {
   const pointsRef = useRef<THREE.Points>(null)
-  const materialRef = useRef<THREE.PointsMaterial>(null)
-
-  const field = useMemo(() => {
-    const count = variant === 'far' ? 1400 : 720
-    const bounds =
-      variant === 'far' ? { x: 10, y: 10, z: 8 } : { x: 8, y: 8, z: 5 }
-    return createField(count, bounds, variant)
-  }, [variant])
-
-  const liveRef = useRef({ windSpeed, rainAmount, clouds, progress, descent })
-
-  useEffect(() => {
-    liveRef.current = { windSpeed, rainAmount, clouds, progress, descent }
-  }, [clouds, descent, progress, rainAmount, windSpeed])
-
-  useEffect(() => {
-    return () => {
-      pointsRef.current?.geometry.dispose()
-      materialRef.current?.dispose()
-    }
-  }, [])
-
-  useFrame((state, delta) => {
-    const points = pointsRef.current
-    const material = materialRef.current
-    if (!points || !material) return
-
-    const posAttr = points.geometry.attributes.position
-    const pos = posAttr.array as Float32Array
-    const t = state.clock.elapsedTime
-
-    const {
-      windSpeed: lw,
-      rainAmount: lr,
-      clouds: lc,
-      progress: lp,
-      descent: ld,
-    } = liveRef.current
-
-    const windDrift = clamp(lw / 20, 0, 1) * (variant === 'far' ? 0.12 : 0.22)
-    const rainSink = clamp(lr / 10, 0, 1) * (variant === 'far' ? 0.07 : 0.12)
-    const depthSlow = THREE.MathUtils.lerp(1.0, 0.72, clamp(lp, 0, 1))
-
-    const bounds = field.bounds
-    const count = field.count
-
+  
+  // 妥協のない密度。奥(far)の空間は微細な粒子で埋め尽くし、手前(near)は大きなボケを作り出す
+  const count = variant === 'near' ? 350 : 1200
+  
+  // 粒子の座標と、固有のランダムパラメータを生成
+  const [positions, randoms] = useMemo(() => {
+    const pos = new Float32Array(count * 3)
+    const rnd = new Float32Array(count * 3)
+    
     for (let i = 0; i < count; i++) {
-      const ix = i * 3
-      const localWave =
-        Math.sin(t * 0.22 + i * 0.013) * (variant === 'far' ? 0.015 : 0.03)
-
-      pos[ix + 0] += (field.drift[i] + windDrift + localWave) * delta * depthSlow
-      pos[ix + 1] -= (field.fall[i] + rainSink) * delta * depthSlow
-
-      if (pos[ix + 1] < -bounds.y) {
-        pos[ix + 1] = bounds.y
-        pos[ix + 0] = randomBetween(-bounds.x, bounds.x)
-        pos[ix + 2] = randomBetween(-bounds.z, bounds.z)
-      }
-
-      if (pos[ix + 0] > bounds.x) pos[ix + 0] = -bounds.x
-      if (pos[ix + 0] < -bounds.x) pos[ix + 0] = bounds.x
+      // 空間の広がり（幅と高さ）
+      pos[i * 3 + 0] = (Math.random() - 0.5) * 20 
+      pos[i * 3 + 1] = (Math.random() - 0.5) * 20 
+      // Z軸: nearは手前〜クリスタル付近、farはクリスタルの奥の深淵
+      pos[i * 3 + 2] = variant === 'near' ? (Math.random() * 6 - 2) : (Math.random() * -15 - 3)
+      
+      // x: 位相(Phase), y: 速度係数(Speed), z: サイズ係数(Scale)
+      rnd[i * 3 + 0] = Math.random() * Math.PI * 2
+      rnd[i * 3 + 1] = 0.2 + Math.random() * 0.8
+      rnd[i * 3 + 2] = 0.5 + Math.random() * 1.5
     }
+    return [pos, rnd]
+  }, [count, variant])
 
-    posAttr.needsUpdate = true
-    points.rotation.z = Math.sin(t * 0.05) * 0.08 + windDrift * 0.32
+  const shaderArgs = useMemo(() => ({
+    uniforms: {
+      uTime: { value: 0 },
+      uDescent: { value: 0 },
+      uOpacity: { value: variant === 'near' ? 0.6 : 0.3 }
+    },
+    vertexShader: `
+      uniform float uTime;
+      uniform float uDescent;
+      attribute vec3 aRandom;
+      varying float vAlpha;
 
-    const rainFactor = clamp(lr / 10, 0, 1)
-    const cloudFactor = clamp(lc / 100, 0, 1)
+      void main() {
+        vec3 pos = position;
 
-    const baseOpacity =
-      variant === 'far'
-        ? 0.12 + cloudFactor * 0.1 + rainFactor * 0.12
-        : 0.18 + rainFactor * 0.16
+        // 1. 物理ベースの海流（ゆっくり落ちる基本速度 + 潜行時の強烈な上昇気流）
+        float fallSpeed = -0.15 * aRandom.y;
+        float diveSpeed = 5.0 * uDescent * aRandom.y;
+        pos.y += uTime * (fallSpeed + diveSpeed);
 
-    // Descent shapes the snow's presence:
-    //   at descent=0, particles are barely visible (~10% of base)
-    //   at descent=1, particles are at their full computed opacity
-    const descentMul = THREE.MathUtils.lerp(0.1, 1.0, clamp(ld, 0, 1))
-    const targetOpacity = baseOpacity * descentMul
+        // 2. 有機的な揺らぎ（プランクトンやマリンスノーの自然な漂い）
+        pos.x += sin(uTime * 0.3 * aRandom.y + aRandom.x) * 0.4 * aRandom.z;
+        pos.z += cos(uTime * 0.2 * aRandom.y + aRandom.x) * 0.4 * aRandom.z;
 
-    material.opacity = THREE.MathUtils.lerp(material.opacity, targetOpacity, delta * 2.2)
-    material.size = THREE.MathUtils.lerp(
-      material.size,
-      variant === 'far'
-        ? 0.034 + clamp(lp, 0, 1) * 0.01
-        : 0.058 + clamp(lp, 0, 1) * 0.015,
-      delta * 2.2
-    )
+        // 3. 永遠に続く海（空間のループ）
+        pos.y = mod(pos.y + 10.0, 20.0) - 10.0;
+
+        vec4 mvPosition = viewMatrix * modelMatrix * vec4(pos, 1.0);
+        
+        // 4. 光学的な被写界深度（DoF / ボケ感）の計算
+        // カメラ(z=4.5)からクリスタル(z=0)付近までの距離を焦点(Focus)とする
+        float distToCamera = -mvPosition.z; 
+        float focusDist = 4.5; 
+        float blur = abs(distToCamera - focusDist) * 0.25; // 焦点から離れるほどボケる
+        
+        // ボケるほど粒子は大きく広がる
+        float baseSize = 25.0 * aRandom.z;
+        float pointSize = baseSize + (blur * 30.0);
+        
+        gl_PointSize = pointSize * (20.0 / distToCamera); // 透視投影によるスケール
+        gl_Position = projectionMatrix * mvPosition;
+
+        // 5. エネルギー保存の法則（大きくボケた粒子ほど透明になる）
+        float energyConservation = 1.0 / (1.0 + blur * 2.0);
+        // 奥深くの粒子は暗闇に溶け込ませる
+        float depthFade = 1.0 - smoothstep(12.0, 20.0, distToCamera);
+        
+        vAlpha = energyConservation * depthFade;
+      }
+    `,
+    fragmentShader: `
+      uniform float uOpacity;
+      varying float vAlpha;
+      
+      void main() {
+        vec2 xy = gl_PointCoord.xy - vec2(0.5);
+        float ll = dot(xy, xy);
+
+        // 🚨 圧倒的なリアリティの鍵: ガウス関数による完璧な光の減衰（Bokeh効果）
+        // ただの切り抜きではなく、中心から縁へ向かって数学的に滑らかに溶ける
+        float intensity = exp(-16.0 * ll);
+        
+        // コア（中心の強い発光）
+        float core = exp(-60.0 * ll) * 0.6;
+
+        // 完全に透明な部分は描画をスキップしてGPUを最適化
+        if (intensity < 0.001) discard;
+
+        // 深海の美しい青白さ（個体によってわずかに色温度を揺らす処理も可能）
+        vec3 color = vec3(0.85, 0.95, 1.0);
+        
+        gl_FragColor = vec4(color, (intensity + core) * vAlpha * uOpacity);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending // 光が重なると白く飛ぶリアルな加算合成
+  }), [variant])
+
+  useFrame((state) => {
+    if (pointsRef.current) {
+      const mat = pointsRef.current.material as THREE.ShaderMaterial
+      mat.uniforms.uTime.value = state.clock.elapsedTime
+      // 滑らかに潜行速度（descent）をシェーダーへ渡す
+      mat.uniforms.uDescent.value = THREE.MathUtils.lerp(mat.uniforms.uDescent.value, descent, 0.1)
+    }
   })
 
   return (
-    <points
-      ref={pointsRef}
-      position={variant === 'far' ? [0, 0, -2.6] : [0, 0, -0.8]}
-    >
-      <bufferGeometry key={field.count}>
-        {/* --- 修正ポイント：args を用いた配列渡し --- */}
-        <bufferAttribute
-          attach="attributes-position"
-          args={[field.positions, 3]}
-        />
-        <bufferAttribute
-          attach="attributes-color"
-          args={[field.colors, 3]}
-        />
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        {/* 🚨 TSエラーを解消: count, array, itemSize を args 配列にまとめる正しい構文 */}
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+        <bufferAttribute attach="attributes-aRandom" args={[randoms, 3]} />
       </bufferGeometry>
-
-      <pointsMaterial
-        ref={materialRef}
-        size={variant === 'far' ? 0.038 : 0.062}
-        vertexColors
-        transparent
-        opacity={variant === 'far' ? 0.18 : 0.24}
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-      />
+      <shaderMaterial args={[shaderArgs]} />
     </points>
   )
 }

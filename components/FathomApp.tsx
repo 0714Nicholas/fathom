@@ -64,11 +64,8 @@ const hudStyles = `
   .hud-bottom-left { position: absolute; bottom: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
   .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; display: flex; flex-direction: column; align-items: flex-end; }
   .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
-  
-  /* 🚨 右下のUIを整えるためのスタイル追加 */
   .hud-bottom-right { position: absolute; bottom: 40px; right: 32px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: auto; }
 
-  /* --- Tuning UI Styles --- */
   .beacon-slider {
     -webkit-appearance: none;
     width: 100%;
@@ -115,11 +112,6 @@ const hudStyles = `
     .hud-bottom-right { bottom: 130px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
   }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
 `
 
 function EdgeResonanceOverlay({ ripples }: { ripples: { id: number, pan: number }[] }) {
@@ -156,25 +148,22 @@ function EdgeResonanceOverlay({ ripples }: { ripples: { id: number, pan: number 
 }
 
 function downloadCrystalMemory(coordinate: string, depth: number) {
+  // ... (処理そのままなので省略せずに記載)
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-
   const width = 1080
   const height = 1920
   canvas.width = width
   canvas.height = height
-
   const r1 = Math.floor(10 + (25 - 10) * (1 - depth))
   const g1 = Math.floor(25 + (50 - 25) * (1 - depth))
   const b1 = Math.floor(40 + (80 - 40) * (1 - depth))
-  
   const gradient = ctx.createLinearGradient(0, 0, 0, height)
   gradient.addColorStop(0, `rgb(${r1}, ${g1}, ${b1})`)
   gradient.addColorStop(1, '#02050a')
   ctx.fillStyle = gradient
   ctx.fillRect(0, 0, width, height)
-
   const cx = width / 2
   const cy = height / 2 - 100
   const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 500)
@@ -182,29 +171,22 @@ function downloadCrystalMemory(coordinate: string, depth: number) {
   glow.addColorStop(1, 'rgba(143, 216, 255, 0)')
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, width, height)
-
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  
   const words = coordinate.split('-')
-  
   ctx.font = '300 72px monospace'
   words.forEach((word, index) => {
     ctx.fillText(word, cx, cy - 80 + index * 120)
   })
-
   ctx.font = '400 36px monospace'
   ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'
   ctx.fillText('F A T H O M', cx, 200)
-
   ctx.font = '300 28px monospace'
   ctx.fillText(`Recorded at ${Math.round(depth * 100)}% depth`, cx, height - 250)
-  
   ctx.font = '300 22px monospace'
   ctx.fillStyle = 'rgba(255, 255, 255, 0.25)'
   ctx.fillText('Keep this memory to return to your sea.', cx, height - 180)
-
   const dataUrl = canvas.toDataURL('image/png')
   const a = document.createElement('a')
   a.href = dataUrl
@@ -256,7 +238,8 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
   )
 }
 
-function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, isLoading, onSearch }: any) {
+// 🚨 追加修正: propsにチューニング連携用の関数を追加
+function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, isLoading, onSearch, onTuningChange, onCitySnap }: any) {
   const [mode, setMode] = useState<FathomMode>('focus')
   const [dialValue, setDialValue] = useState(50)
   const [isDragging, setIsDragging] = useState(false)
@@ -284,6 +267,9 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
   const handleDialChange = (val: number) => {
     setDialValue(val)
     setIsDragging(true)
+    
+    // 🚨 ドラッグ中であることを親(Crystal)に伝える
+    onTuningChange(val, true)
 
     const index = Math.round((val / 100) * (PORTS.length - 1))
     
@@ -291,6 +277,8 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
         navigator.vibrate(10)
       }
+      // 🚨 都市が切り替わった瞬間にクリスタルを共鳴させる
+      onCitySnap()
       lastIndex.current = index
     }
 
@@ -298,6 +286,9 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
     
     dragTimeout.current = window.setTimeout(() => {
       setIsDragging(false)
+      // 🚨 ドラッグが止まったことを親に伝える
+      onTuningChange(val, false)
+      
       const port = PORTS[index]
       if (targetCity !== port.query) {
         onSearch(port.query)
@@ -309,7 +300,9 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     zIndex: 50, display: 'flex', flexDirection: 'column',
     justifyContent: 'flex-end', alignItems: 'center',
-    paddingBottom: '10vh', pointerEvents: 'none',
+    // 🚨 修正: 見切れを防ぐため、下部の余白を10vhから18vhへ大きく確保
+    paddingBottom: '18vh', 
+    pointerEvents: 'none',
     opacity: isLeaving ? 0 : 1, transition: 'opacity 1s ease'
   }
 
@@ -383,6 +376,10 @@ export function FathomApp() {
   const [resonancePulse, setResonancePulse] = useState(0)
   const [resonanceEnergy, setResonanceEnergy] = useState(0.14)
 
+  // 🚨 追加: チューニング状態を保持するState
+  const [tuningValue, setTuningValue] = useState(50)
+  const [isTuning, setIsTuning] = useState(false)
+
   const [hasDescended, setHasDescended] = useState(false)
   const [beaconLeaving, setBeaconLeaving] = useState(false)
   const [beaconMounted, setBeaconMounted] = useState(true)
@@ -415,11 +412,10 @@ export function FathomApp() {
     return { city: data.city, windSpeed, rainAmount, clouds, temp: data.temp, description: data.description } as Record<string, unknown>
   }, [clouds, data, rainAmount, windSpeed])
 
-  // アビサル・オーバーロード（長押しチャージ）
   const { isCharging, turbidity, startCharge, stopCharge } = useAbyssalOverload({
     chargeTimeRequired: 3000,
     onReleaseSuccess: () => {
-      setProgress(prev => Math.max(0, prev - 0.08)) // ペナルティ
+      setProgress(prev => Math.max(0, prev - 0.08)) 
       incrementRelease()
       audio.triggerOverloadSonar()
       setResonancePulse(Date.now())
@@ -442,43 +438,24 @@ export function FathomApp() {
   const driftElapsedRef = useRef(0)
 
   useEffect(() => {
+    // ... WakeLock処理
     const nav = navigator as any
     let wakeLock: any = null
-
     const requestWakeLock = async () => {
       if ('wakeLock' in nav && audio.running) {
-        try {
-          wakeLock = await nav.wakeLock.request('screen')
-        } catch (err: any) {
-          console.warn('Wake Lock error:', err.message)
-        }
+        try { wakeLock = await nav.wakeLock.request('screen') } catch (err: any) {}
       }
     }
-
     const releaseWakeLock = async () => {
       if (wakeLock !== null) {
-        try {
-          await wakeLock.release()
-          wakeLock = null
-        } catch (err: any) {
-          console.warn('Wake Lock release error:', err.message)
-        }
+        try { await wakeLock.release(); wakeLock = null } catch (err: any) {}
       }
     }
-
-    if (audio.running) {
-      requestWakeLock()
-    } else {
-      releaseWakeLock()
-    }
-
+    if (audio.running) { requestWakeLock() } else { releaseWakeLock() }
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && audio.running) {
-        requestWakeLock()
-      }
+      if (document.visibilityState === 'visible' && audio.running) requestWakeLock()
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
-
     return () => {
       releaseWakeLock()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -487,10 +464,8 @@ export function FathomApp() {
 
   useEffect(() => {
     if (!settled || !audio.running) return
-
     let lastTick = Date.now()
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
-    
     const WORK_MS = 25 * 60 * 1000 
     const BREAK_MS = 5 * 60 * 1000 
     const FOCUS_MS = 90 * 60 * 1000 
@@ -527,15 +502,12 @@ export function FathomApp() {
           currentDepth = 1.0
         }
       }
-
       setProgress(currentDepth)
-      
       if (sessionPhaseRef.current !== newPhase) {
         sessionPhaseRef.current = newPhase
         setSessionPhase(newPhase)
       }
     }, 1000)
-
     return () => window.clearInterval(timer)
   }, [audio.running, descent, settled, fathomMode])
 
@@ -566,16 +538,12 @@ export function FathomApp() {
   const handleRemoteResonance = useCallback((payload: ResonancePulsePayload) => {
     const peerSeed = (payload as any).senderId || (payload as any).letterId || 'anonymous-tide-seed'
     const peerDepth = (payload as any).depth ?? progress 
-
     const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
     const damped = Math.max(0.1, Math.min(0.4, payload.energy * 0.6)) * volumeDamp
-
     const panValue = audio.triggerSpatialResonance(peerSeed, peerDepth, damped)
     triggerResonance(damped)
-
     const rippleId = Date.now() + Math.random()
     setRipples(prev => [...prev, { id: rippleId, pan: panValue }])
-    
     setTimeout(() => {
       setRipples(prev => prev.filter(r => r.id !== rippleId))
     }, 3500)
@@ -627,7 +595,6 @@ export function FathomApp() {
         />
       )}
 
-      {/* 🚨 追加修正: DeepSeaCanvas を強制フルスクリーンのコンテナで囲むことで、空間潰れを防ぎます */}
       <div style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }}>
         <DeepSeaCanvas
           progress={progress}
@@ -647,7 +614,10 @@ export function FathomApp() {
           isCharging={isCharging}       
           turbidity={turbidity}         
           onChargeStart={startCharge}   
-          onChargeStop={stopCharge}     
+          onChargeStop={stopCharge}
+          // 🚨 チューニング状態をキャンバスへ渡す
+          tuningValue={tuningValue}
+          isTuning={isTuning}     
         />
       </div>
 
@@ -667,7 +637,14 @@ export function FathomApp() {
           targetCity={city} 
           resolvedCity={data?.city ?? null} 
           isLoading={loading} 
-          onSearch={(c: string) => setCity(c)} 
+          onSearch={(c: string) => setCity(c)}
+          // 🚨 スライダーからのチューニング情報を受け取りStateに反映
+          onTuningChange={(val: number, tuning: boolean) => {
+            setTuningValue(val)
+            setIsTuning(tuning)
+          }}
+          // 🚨 都市が切り替わった瞬間に鼓動を打つ
+          onCitySnap={() => triggerResonance(0.4)}
         />
       ) : null}
 
@@ -800,7 +777,6 @@ export function FathomApp() {
               )}
             </div>
 
-            {/* 🚨 無粋なテキスト（結晶に触れ…）を完全に排除 */}
             {sessionPhase === 'interval' ? (
               <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
                 <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.1em', marginBottom: 24 }} className="font-mincho">
@@ -809,7 +785,6 @@ export function FathomApp() {
               </div>
             ) : null}
 
-            {/* 🚨 追加修正: 右下の空白を埋めるためにSuspendボタンを配置 */}
             <div className={`hud-bottom-right ${visibilityClass(settled, 4)}`}>
               <div style={{ opacity: 0.3, fontSize: '9px', letterSpacing: '0.2em', marginBottom: 12, fontFamily: 'monospace' }}>
                 hold crystal to release

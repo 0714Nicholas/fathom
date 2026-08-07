@@ -25,6 +25,9 @@ export interface DeepSeaCanvasProps {
   turbidity?: number
   onChargeStart?: () => void
   onChargeStop?: () => void
+  // 🚨 チューニング連携用のPropsを追加
+  tuningValue?: number
+  isTuning?: boolean
 }
 
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
@@ -33,10 +36,8 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
       <Canvas
         camera={{ position: [0, 0, 4.5], fov: 45 }}
         dpr={[1, 2]}
-        // 🚨 alpha: true に戻すことで、マリンスノーの「四角形のフチ」が透け、美しい球体に戻ります
         gl={{ antialias: true, alpha: true, stencil: false, depth: true }}
       >
-        {/* 🚨 のっぺり感の原因だったベタ塗りの背景色を削除し、絶妙な奥行きを出す薄い霧だけを残します */}
         <fog attach="fog" args={['#02050a', 4, 12]} />
 
         <Suspense fallback={null}>
