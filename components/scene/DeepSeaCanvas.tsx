@@ -29,16 +29,15 @@ export interface DeepSeaCanvasProps {
 
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
   return (
-    // 🚨 Canvasをフルスクリーンの絶対配置divで囲むことで、レイアウト潰れを完全に防ぎます
     <div style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 0 }}>
       <Canvas
         camera={{ position: [0, 0, 4.5], fov: 45 }}
         dpr={[1, 2]}
-        // 背景色を暗黒に設定し、マリンスノーの描画を際立たせます
-        gl={{ antialias: true, alpha: false, stencil: false, depth: true }}
+        // 🚨 alpha: true に戻すことで、マリンスノーの「四角形のフチ」が透け、美しい球体に戻ります
+        gl={{ antialias: true, alpha: true, stencil: false, depth: true }}
       >
-        <color attach="background" args={['#02050a']} />
-        <fog attach="fog" args={['#02050a', 3, 9]} />
+        {/* 🚨 のっぺり感の原因だったベタ塗りの背景色を削除し、絶妙な奥行きを出す薄い霧だけを残します */}
+        <fog attach="fog" args={['#02050a', 4, 12]} />
 
         <Suspense fallback={null}>
           <CrystalCoral {...props} />
