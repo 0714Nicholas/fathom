@@ -10,9 +10,9 @@ import {
 import { useWeather } from '@/hooks/useWeather'
 import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
 import { useFathomDescent } from '@/hooks/useFathomDescent'
-import { formatCoordinateForSystem } from '@/lib/identity/coordinates'
+import { isValidFathomCoordinate, formatCoordinateForSystem } from '@/lib/identity/coordinates'
 import { useFathomMemory } from '@/hooks/useFathomMemory'
-import { useAbyssalOverload } from '@/hooks/useAbyssalOverload' // 🚨 新機能フックを追加
+import { useAbyssalOverload } from '@/hooks/useAbyssalOverload'
 
 import { PORTS } from '@/lib/scene/ports'
 import { useSelfSeed } from '@/hooks/useSelfSeed'
@@ -62,6 +62,7 @@ const hudStyles = `
   }
   .hud-top-left { position: absolute; top: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
   .hud-bottom-left { position: absolute; bottom: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
+  .hud-top-right { position: absolute; top: 40px; right: 32px; pointer-events: auto; max-width: 300px; display: flex; flex-direction: column; align-items: flex-end; }
   .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
   
   /* --- Tuning UI Styles --- */
@@ -105,9 +106,15 @@ const hudStyles = `
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
     .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
+    .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
 `
 
@@ -376,6 +383,10 @@ export function FathomApp() {
   const [beaconLeaving, setBeaconLeaving] = useState(false)
   const [beaconMounted, setBeaconMounted] = useState(true)
 
+  const [channelMode, setChannelMode] = useState<'global' | 'resonance'>('global')
+  const [linkedPeers, setLinkedPeers] = useState<Set<string>>(new Set())
+  const [linkInputError, setLinkInputError] = useState(false)
+
   const [ripples, setRipples] = useState<{id: number, pan: number}[]>([])
 
   const { seed: selfId, isLoading: isSeedLoading, restoreSeed } = useSelfSeed()
@@ -400,32 +411,26 @@ export function FathomApp() {
     return { city: data.city, windSpeed, rainAmount, clouds, temp: data.temp, description: data.description } as Record<string, unknown>
   }, [clouds, data, rainAmount, windSpeed])
 
-  // 🚨 1. 新機能：沈黙の飽和と解放（チャージとペナルティ）
+  // アビサル・オーバーロード（長押しチャージ）
   const { isCharging, turbidity, startCharge, stopCharge } = useAbyssalOverload({
     chargeTimeRequired: 3000,
     onReleaseSuccess: () => {
-      // 代償：深度を8%失う
-      setProgress(prev => Math.max(0, prev - 0.08))
+      setProgress(prev => Math.max(0, prev - 0.08)) // ペナルティ
       incrementRelease()
       audio.triggerOverloadSonar()
       setResonancePulse(Date.now())
-      
-      // 他のダイバーへ強いソナーを放つ
-      if (sendResonance) {
-        sendResonance(1.0)
-      }
+      if (sendResonance) sendResonance(1.0)
     }
   })
 
-  // 🚨 2. オーディオエンジンにチャージと濁度を連携
   const audio = useDeepSeaAudio({ 
     enabled: true, 
     progress, 
     windSpeed, 
     rainAmount, 
     descent,
-    isCharging, // 連携
-    turbidity   // 連携
+    isCharging, 
+    turbidity   
   })
   
   const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
@@ -476,7 +481,6 @@ export function FathomApp() {
     }
   }, [audio.running])
 
-  // 潜行とセッションのロジック（そのまま）
   useEffect(() => {
     if (!settled || !audio.running) return
 
@@ -573,8 +577,7 @@ export function FathomApp() {
     }, 3500)
   }, [audio, triggerResonance, fathomMode, progress])
 
-  // 🚨 手紙の購読UIは削除し、通信（ソナー送受信）のバックエンド機能だけを残す
-  const { latestHeatmapPulse, sendResonance } = useRealtimeLetters({
+  const { latestHeatmapPulse, sendResonance, presenceCount } = useRealtimeLetters({
     roomId: ROOM_ID, selfId: selfId || 'loading', selfName: 'visitor', city: data?.city, depth: progress, descent,
     currentWeatherSnapshot: weatherSnapshot, preferredLang: null, onRemoteResonance: handleRemoteResonance,
     enableFirstSurfacing: false, 
@@ -587,7 +590,7 @@ export function FathomApp() {
     setHasDescended(true)
     setBeaconLeaving(true)
     beginDescent()
-    void audio.resume() // startからresumeに変更して安全に再生
+    void audio.resume()
     triggerResonance(0.22)
     window.setTimeout(() => setBeaconMounted(false), 650)
   }, [audio, beginDescent, hasDescended, triggerResonance])
@@ -620,7 +623,6 @@ export function FathomApp() {
         />
       )}
 
-      {/* 🚨 追加：クリスタルにチャージ情報を渡す */}
       <DeepSeaCanvas
         progress={progress}
         windSpeed={windSpeed}
@@ -629,17 +631,17 @@ export function FathomApp() {
         resonancePulse={resonancePulse}
         resonanceEnergy={resonanceEnergy}
         identity={identity}
-        heatmapPulse={latestHeatmapPulse as any}
+        heatmapPulse={latestHeatmapPulse as any} 
         descent={descent}
         temp={data?.temp ?? undefined}
         isSuspended={!audio.running}
         diveTimeMs={diveTimeMs}     
         releaseCount={releaseCount} 
         sessionPhase={sessionPhase} 
-        isCharging={isCharging}       // 追加
-        turbidity={turbidity}         // 追加
-        onChargeStart={startCharge}   // 追加
-        onChargeStop={stopCharge}     // 追加
+        isCharging={isCharging}       
+        turbidity={turbidity}         
+        onChargeStart={startCharge}   
+        onChargeStop={stopCharge}     
       />
 
       <div className="scene-vignette" />
@@ -717,14 +719,87 @@ export function FathomApp() {
               <div style={{ marginBottom: 4 }}>Releases: {releaseCount}</div>
             </div>
 
+            <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 8, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                <button
+                  className="hud-btn"
+                  style={{ opacity: channelMode === 'global' ? 1 : 0.3, padding: 0 }}
+                  onClick={() => setChannelMode('global')}
+                >
+                  [ GLOBAL ]
+                </button>
+                <button
+                  className="hud-btn"
+                  style={{ opacity: channelMode === 'resonance' ? 1 : 0.3, padding: 0, color: channelMode === 'resonance' ? '#8fd8ff' : 'inherit' }}
+                  onClick={() => setChannelMode('resonance')}
+                >
+                  [ SYNC: {linkedPeers.size} ]
+                </button>
+              </div>
+
+              {channelMode === 'global' ? (
+                <div style={{ textAlign: 'right', marginTop: 16 }}>
+                  <div style={{ opacity: 0.5, fontSize: '10px', letterSpacing: '0.1em', fontFamily: 'monospace', marginBottom: 4 }}>
+                    listening to anonymous tide...
+                  </div>
+                  <div className="font-mincho" style={{ fontSize: '11px', opacity: 0.4, marginTop: 12 }}>
+                    Active Divers : {presenceCount ?? 1}
+                  </div>
+                  {turbidity > 0.8 && (
+                    <div style={{ color: 'rgba(255,100,100,0.8)', fontSize: '10px', marginTop: 8 }} className="animate-pulse">
+                      Turbulence blocking signals...
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                  <input
+                    type="text"
+                    placeholder="enter 3-word coordinate"
+                    style={{ 
+                      background: 'transparent',
+                      color: 'rgba(255,255,255,0.8)',
+                      fontFamily: 'monospace',
+                      fontSize: '11px',
+                      letterSpacing: '0.05em',
+                      width: '180px', 
+                      border: 'none',
+                      borderBottom: `1px solid ${linkInputError ? 'rgba(255,100,100,0.5)' : 'rgba(255,255,255,0.2)'}`, 
+                      height: 24, 
+                      padding: '0 4px',
+                      marginBottom: 8,
+                      textAlign: 'right',
+                      outline: 'none'
+                    }}
+                    onChange={() => setLinkInputError(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const val = e.currentTarget.value;
+                        const formatted = formatCoordinateForSystem(val);
+                        if (isValidFathomCoordinate(formatted)) {
+                          setLinkedPeers(prev => new Set(prev).add(formatted));
+                          e.currentTarget.value = '';
+                          setLinkInputError(false);
+                        } else {
+                          setLinkInputError(true);
+                        }
+                      }
+                    }}
+                  />
+                  <div style={{ opacity: 0.4, fontSize: '10px', marginTop: 4, textAlign: 'right', fontFamily: 'monospace' }}>
+                    Sonar will only reach synced coordinates.
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
               
-              {/* 🚨 テキスト入力を削除し、長押しのガイドとペナルティ警告に置き換え */}
               {sessionPhase === 'diving' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, marginBottom: 24 }}>
                   <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.15em' }} className="font-mincho">
                     {turbidity > 0.8 ? (
-                      <span style={{ color: 'rgba(255,100,100,0.8)', animation: 'pulse 2s infinite' }}>深海が荒れています。静寂をお待ちください。</span>
+                      <span style={{ color: 'rgba(255,100,100,0.8)' }} className="animate-pulse">深海が荒れています。静寂をお待ちください。</span>
                     ) : (
                       <span>（ 結晶に触れ、圧力を解放する ）</span>
                     )}

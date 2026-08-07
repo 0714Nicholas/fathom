@@ -222,8 +222,8 @@ export function CrystalCoral({
   return (
     <group 
       ref={groupRef} 
-      scale={0.55} 
-      position={[0, -0.2, 0]}
+      scale={1.0} 
+      position={[0, 0, 0]}
       onPointerDown={(e) => { e.stopPropagation(); if (onChargeStart) onChargeStart(); }}
       onPointerUp={(e) => { e.stopPropagation(); if (onChargeStop) onChargeStop(); }}
       onPointerOut={(e) => { e.stopPropagation(); if (onChargeStop) onChargeStop(); }}

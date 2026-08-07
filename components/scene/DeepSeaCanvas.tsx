@@ -1,7 +1,12 @@
 'use client'
 
+import { Suspense } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { CrystalCoral } from './CrystalCoral'
+import { MarineSnow } from './MarineSnow'
+// 🚨 エラーの原因だった ResonanceField のインポートを一時的に停止
+// import { ResonanceField } from './ResonanceField'
+import { ResonanceHeatmap } from './ResonanceHeatmap'
 
 export interface DeepSeaCanvasProps {
   progress?: number
@@ -9,21 +14,15 @@ export interface DeepSeaCanvasProps {
   clouds?: number
   rainAmount?: number
   temp?: number
-  
-  // 記憶・セッション関連
   diveTimeMs?: number
   releaseCount?: number
   sessionPhase?: string
   descent?: number
   isSuspended?: boolean
-  
-  // Fathomのアイデンティティ・通信関連
   identity?: any
   resonancePulse?: number
   resonanceEnergy?: number
   heatmapPulse?: any
-  
-  // 新機能：アビサル・オーバーロード（長押しチャージ）関連
   isCharging?: boolean
   turbidity?: number
   onChargeStart?: () => void
@@ -33,15 +32,50 @@ export interface DeepSeaCanvasProps {
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
   return (
     <Canvas
-      camera={{ position: [0, 0, 4], fov: 45 }}
-      dpr={[1, 2]} // デバイスのピクセル比に応じた解像度最適化
-      gl={{ antialias: true, alpha: true }}
+      camera={{ position: [0, 0, 4.5], fov: 45 }}
+      dpr={[1, 2]}
+      gl={{ antialias: true, alpha: true, stencil: false, depth: false }}
     >
-      {/* 
-        受け取ったすべてのPropsをそのまま CrystalCoral にパス（バケツリレー）します。
-        これにより、CrystalCoral 内部のシェーダーでこれらの値を利用できるようになります。
-      */}
-      <CrystalCoral {...props} />
+      {/* 深海のベース空間（奥行きと霞み） */}
+      <color attach="background" args={['#02050a']} />
+      <fog attach="fog" args={['#02050a', 3, 10]} />
+
+      <Suspense fallback={null}>
+        {/* メインの結晶（長押し判定を含む） */}
+        <CrystalCoral {...props} />
+        
+        {/* 手前のマリンスノー */}
+        <MarineSnow 
+          variant="near" 
+          progress={props.progress || 0} 
+          descent={props.descent || 0} 
+          windSpeed={props.windSpeed || 0} 
+          rainAmount={props.rainAmount || 0}
+          clouds={props.clouds || 0} 
+        />
+        {/* 奥のマリンスノー（物理法則に従って潜行時は上がり、停止時は舞い落ちる） */}
+        <MarineSnow 
+          variant="far" 
+          progress={props.progress || 0} 
+          descent={props.descent || 0} 
+          windSpeed={props.windSpeed || 0} 
+          rainAmount={props.rainAmount || 0}
+          clouds={props.clouds || 0} 
+        />
+        
+        {/* 🚨 ResonanceField はファイル破損のため一時的に非表示 */}
+        {/* <ResonanceField 
+          resonancePulse={props.resonancePulse || 0} 
+          resonanceEnergy={props.resonanceEnergy || 0} 
+        /> */}
+
+        {/* ヒートマップエフェクト */}
+        <ResonanceHeatmap 
+          latestPulse={props.heatmapPulse} 
+          progress={props.progress || 0} 
+          descent={props.descent || 0} 
+        />
+      </Suspense>
     </Canvas>
   )
 }
