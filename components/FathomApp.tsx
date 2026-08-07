@@ -1,148 +1,752 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DeepSeaCanvas } from '@/components/scene/DeepSeaCanvas'
 import { useDeepSeaAudio } from '@/hooks/useDeepSeaAudio'
+import {
+  useRealtimeLetters,
+  type ResonancePulsePayload,
+} from '@/hooks/useRealtimeLetters'
+import { useWeather } from '@/hooks/useWeather'
+import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
+import { useFathomDescent } from '@/hooks/useFathomDescent'
+import { formatCoordinateForSystem } from '@/lib/identity/coordinates'
 import { useFathomMemory } from '@/hooks/useFathomMemory'
-import { useAbyssalOverload } from '@/hooks/useAbyssalOverload' // 前回作ったフック
+import { useAbyssalOverload } from '@/hooks/useAbyssalOverload' // 🚨 新機能フックを追加
+
+import { PORTS } from '@/lib/scene/ports'
+import { useSelfSeed } from '@/hooks/useSelfSeed'
+import { RestoreMemoryModal } from '@/components/auth/RestoreMemoryModal'
+
+const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
+
+export type FathomMode = 'meditate' | 'focus' | 'sleep'
+
+const hudStyles = `
+  @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap');
+
+  .font-mincho {
+    font-family: 'Shippori Mincho', "Noto Serif JP", "Yu Mincho", "MS Mincho", serif;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+  }
+
+  .hud-btn {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    font-family: monospace;
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 4px 8px;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+  }
+  .hud-btn:hover {
+    color: rgba(143, 216, 255, 1);
+    text-shadow: 0 0 8px rgba(143, 216, 255, 0.5);
+  }
+  .hud-btn:disabled {
+    color: rgba(255, 255, 255, 0.1);
+    cursor: default;
+    text-shadow: none;
+  }
+
+  .fathom-logo { 
+    position: fixed; top: 32px; left: 0; width: 100%; text-align: center; 
+    pointer-events: none; z-index: 100; transition: opacity 2s linear; 
+    letter-spacing: 0.6em; font-size: 13px; font-weight: 300; 
+    color: rgba(255,255,255,0.7); font-family: monospace; 
+  }
+  .hud-top-left { position: absolute; top: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
+  .hud-bottom-left { position: absolute; bottom: 40px; left: 32px; text-align: left; font-family: monospace; font-size: 10px; letter-spacing: 0.08em; color: rgba(255,255,255,0.5); pointer-events: auto; }
+  .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
+  
+  /* --- Tuning UI Styles --- */
+  .beacon-slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.15);
+    outline: none;
+    margin: 32px 0;
+  }
+  .beacon-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 2px;
+    height: 20px;
+    background: #fff;
+    cursor: pointer;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .beacon-slider.locked::-webkit-slider-thumb {
+    background: #8fd8ff;
+    box-shadow: 0 0 12px rgba(143, 216, 255, 0.8);
+  }
+  .signal-text {
+    font-family: monospace;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: rgba(255, 255, 255, 0.5);
+    transition: color 0.4s ease, text-shadow 0.4s ease;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .signal-text.locked {
+    color: #8fd8ff;
+    text-shadow: 0 0 8px rgba(143, 216, 255, 0.4);
+  }
+
+  @media (max-width: 768px) {
+    .fathom-logo { font-size: 14px; top: 16px; }
+    .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
+    .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
+    .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
+    .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
+  }
+`
+
+function EdgeResonanceOverlay({ ripples }: { ripples: { id: number, pan: number }[] }) {
+  return (
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 40, overflow: 'hidden' }}>
+      {ripples.map(r => {
+        const leftPos = 50 + (r.pan * 60)
+        return (
+          <div
+            key={r.id}
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: `${leftPos}%`,
+              width: '40vw',
+              height: '80vh',
+              transform: 'translate(-50%, -50%)',
+              background: 'radial-gradient(ellipse at center, rgba(143,216,255,0.15) 0%, rgba(143,216,255,0) 60%)',
+              mixBlendMode: 'screen',
+              animation: 'edge-glow 3s cubic-bezier(0.1, 0.8, 0.2, 1) forwards'
+            }}
+          />
+        )
+      })}
+      <style>{`
+        @keyframes edge-glow {
+          0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+          15% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); filter: brightness(1.2); }
+          100% { opacity: 0; transform: translate(-50%, -50%) scale(1.3); }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+function downloadCrystalMemory(coordinate: string, depth: number) {
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  const width = 1080
+  const height = 1920
+  canvas.width = width
+  canvas.height = height
+
+  const r1 = Math.floor(10 + (25 - 10) * (1 - depth))
+  const g1 = Math.floor(25 + (50 - 25) * (1 - depth))
+  const b1 = Math.floor(40 + (80 - 40) * (1 - depth))
+  
+  const gradient = ctx.createLinearGradient(0, 0, 0, height)
+  gradient.addColorStop(0, `rgb(${r1}, ${g1}, ${b1})`)
+  gradient.addColorStop(1, '#02050a')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, width, height)
+
+  const cx = width / 2
+  const cy = height / 2 - 100
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 500)
+  glow.addColorStop(0, 'rgba(143, 216, 255, 0.15)')
+  glow.addColorStop(1, 'rgba(143, 216, 255, 0)')
+  ctx.fillStyle = glow
+  ctx.fillRect(0, 0, width, height)
+
+  ctx.fillStyle = '#ffffff'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  
+  const words = coordinate.split('-')
+  
+  ctx.font = '300 72px monospace'
+  words.forEach((word, index) => {
+    ctx.fillText(word, cx, cy - 80 + index * 120)
+  })
+
+  ctx.font = '400 36px monospace'
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'
+  ctx.fillText('F A T H O M', cx, 200)
+
+  ctx.font = '300 28px monospace'
+  ctx.fillText(`Recorded at ${Math.round(depth * 100)}% depth`, cx, height - 250)
+  
+  ctx.font = '300 22px monospace'
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)'
+  ctx.fillText('Keep this memory to return to your sea.', cx, height - 180)
+
+  const dataUrl = canvas.toDataURL('image/png')
+  const a = document.createElement('a')
+  a.href = dataUrl
+  a.download = `fathom-memory-${coordinate}.png`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+function visibilityClass(settled: boolean, stagger?: 1 | 2 | 3 | 4 | 5 | 6): string {
+  const base = settled ? 'ui-revealed' : 'ui-veiled'
+  const staggerCls = stagger ? `ui-stagger-${stagger}` : ''
+  return [base, staggerCls].filter(Boolean).join(' ')
+}
+
+function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m: FathomMode) => void }) {
+  const modes: { value: FathomMode; label: string }[] = [
+    { value: 'meditate', label: 'Meditate (25m+5m)' },
+    { value: 'focus', label: 'Focus (90m)' },
+    { value: 'sleep', label: 'Sleep (60m)' },
+  ]
+  return (
+    <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: '400px' }}>
+      {modes.map((m) => {
+        const isActive = current === m.value
+        return (
+          <button
+            key={m.value}
+            type="button"
+            onClick={() => onSelect(m.value)}
+            style={{
+              padding: '8px 20px',
+              borderRadius: '24px',
+              border: `1px solid ${isActive ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.15)'}`,
+              background: isActive ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.3)',
+              color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
+              transition: 'all 0.3s ease',
+              letterSpacing: '0.1em',
+              fontSize: '13px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {m.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, isLoading, onSearch }: any) {
+  const [mode, setMode] = useState<FathomMode>('focus')
+  const [dialValue, setDialValue] = useState(50)
+  const [isDragging, setIsDragging] = useState(false)
+  const [freqStr, setFreqStr] = useState('00.0')
+  
+  const dragTimeout = useRef<number | null>(null)
+  const lastIndex = useRef<number>(-1)
+
+  useEffect(() => {
+    if (!targetCity) {
+      const initialIndex = Math.floor(Math.random() * PORTS.length)
+      setDialValue((initialIndex / (PORTS.length - 1)) * 100)
+      onSearch(PORTS[initialIndex].query)
+    }
+  }, [targetCity, onSearch])
+
+  useEffect(() => {
+    if (!isDragging) return
+    const interval = setInterval(() => {
+      setFreqStr((Math.random() * 100 + 10).toFixed(1))
+    }, 50)
+    return () => clearInterval(interval)
+  }, [isDragging])
+
+  const handleDialChange = (val: number) => {
+    setDialValue(val)
+    setIsDragging(true)
+
+    const index = Math.round((val / 100) * (PORTS.length - 1))
+    
+    if (index !== lastIndex.current) {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(10)
+      }
+      lastIndex.current = index
+    }
+
+    if (dragTimeout.current) window.clearTimeout(dragTimeout.current)
+    
+    dragTimeout.current = window.setTimeout(() => {
+      setIsDragging(false)
+      const port = PORTS[index]
+      if (targetCity !== port.query) {
+        onSearch(port.query)
+      }
+    }, 600)
+  }
+
+  const containerStyle: React.CSSProperties = {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 50, display: 'flex', flexDirection: 'column',
+    justifyContent: 'flex-end', alignItems: 'center',
+    paddingBottom: '10vh', pointerEvents: 'none',
+    opacity: isLeaving ? 0 : 1, transition: 'opacity 1s ease'
+  }
+
+  const innerStyle: React.CSSProperties = {
+    pointerEvents: 'auto', display: 'flex', flexDirection: 'column',
+    alignItems: 'center', width: '100%', padding: '0 32px', maxWidth: '460px'
+  }
+
+  const isTuning = isDragging || isLoading
+  const currentPort = PORTS[Math.round((dialValue / 100) * (PORTS.length - 1))]
+
+  return (
+    <div aria-hidden={isLeaving} style={containerStyle}>
+      <div style={innerStyle}>
+        
+        <div className={`signal-text ${!isTuning ? 'locked' : ''}`} style={{ marginBottom: 8 }}>
+          {isTuning ? `[ SEEKING... ${freqStr} MHz ]` : `[ SIGNAL ACQUIRED: ${currentPort.name} ]`}
+        </div>
+        
+        <div className="font-mincho" style={{ fontSize: 11, opacity: isTuning ? 0 : 0.6, transition: 'opacity 0.4s ease', height: 16 }}>
+          {isTuning ? '' : currentPort.label}
+        </div>
+
+        <input
+          type="range"
+          min="0" max="100" step="0.1"
+          value={dialValue}
+          onChange={(e) => handleDialChange(parseFloat(e.target.value))}
+          onTouchStart={() => setIsDragging(true)}
+          className={`beacon-slider ${!isTuning ? 'locked' : ''}`}
+        />
+
+        <ModeSelector current={mode} onSelect={setMode} />
+
+        <button 
+          type="button" 
+          className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} 
+          onClick={() => onDescend(mode)} 
+          disabled={isLeaving || isTuning}
+          style={{ position: 'relative', margin: '8px 0', opacity: isTuning ? 0.3 : 1, transition: 'opacity 0.3s' }} 
+        >
+          <span className="descend-word">descend</span>
+        </button>
+        
+        <div style={{ marginTop: 24, letterSpacing: '0.15em', fontSize: '10px', opacity: 0.4, fontFamily: 'monospace', textAlign: 'center' }}>
+          press to enter the deep
+        </div>
+
+        <button 
+          type="button" 
+          className="hud-btn" 
+          onClick={onOpenRestore} 
+          disabled={isLeaving}
+          style={{ marginTop: 40, opacity: 0.6, fontSize: 10, letterSpacing: '0.15em', textTransform: 'none' }}
+        >
+          I have been here before <span className="font-mincho" style={{ opacity: 0.7 }}>（かつての記憶へ帰還）</span>
+        </button>
+      </div>
+    </div>
+  )
+}
 
 export function FathomApp() {
-  // --- 状態管理 ---
-  const [progress, setProgress] = useState(0) 
-  const [isAudioEnabled, setIsAudioEnabled] = useState(false)
+  const [city, setCity] = useState('')
+  const [progress, setProgress] = useState(0)
+  const [fathomMode, setFathomMode] = useState<FathomMode>('focus')
+  
+  const [sessionPhase, setSessionPhase] = useState<'diving' | 'interval' | 'completed'>('diving')
+  const sessionPhaseRef = useRef<'diving' | 'interval' | 'completed'>('diving')
+  
   const [resonancePulse, setResonancePulse] = useState(0)
+  const [resonanceEnergy, setResonanceEnergy] = useState(0.14)
 
-  // (天候データは既存の useWeather 等があればそれに置き換えてください)
-  const windSpeed = 5
-  const clouds = 50
-  const rainAmount = 0
-  const temp = 15
+  const [hasDescended, setHasDescended] = useState(false)
+  const [beaconLeaving, setBeaconLeaving] = useState(false)
+  const [beaconMounted, setBeaconMounted] = useState(true)
 
-  // --- フック群 ---
-  // 1. 記憶（Karma）の管理
-  const { diveTimeMs, releaseCount, incrementRelease, isLoaded } = useFathomMemory(true)
+  const [ripples, setRipples] = useState<{id: number, pan: number}[]>([])
 
-  // 2. 🚨 新機能：沈黙の飽和と解放（チャージ）の管理
+  const { seed: selfId, isLoading: isSeedLoading, restoreSeed } = useSelfSeed()
+  const [showRestoreModal, setShowRestoreModal] = useState(false)
+
+  const identity = useMemo(() => {
+    if (!selfId) return makeCrystalIdentity('fathom-loading-seed')
+    return makeCrystalIdentity(selfId)
+  }, [selfId])
+
+  const descentCtl = useFathomDescent({ durationMs: 8000 })
+  const { descent, phase, begin: beginDescent } = descentCtl
+  const settled = descent >= 1
+
+  const { data, loading } = useWeather(city)
+
+  const windSpeed = data?.windSpeed ?? 4.2
+  const rainAmount = (data?.rain1h ?? 0) + (data?.rain3h ?? 0)
+  const clouds = data?.clouds ?? 42
+  const weatherSnapshot = useMemo(() => {
+    if (!data) return null
+    return { city: data.city, windSpeed, rainAmount, clouds, temp: data.temp, description: data.description } as Record<string, unknown>
+  }, [clouds, data, rainAmount, windSpeed])
+
+  // 🚨 1. 新機能：沈黙の飽和と解放（チャージとペナルティ）
   const { isCharging, turbidity, startCharge, stopCharge } = useAbyssalOverload({
-    chargeTimeRequired: 3000, // 3秒長押しで解放
+    chargeTimeRequired: 3000,
     onReleaseSuccess: () => {
-      // 代償①：深度を強制的に浅くする（リコイル）
+      // 代償：深度を8%失う
       setProgress(prev => Math.max(0, prev - 0.08))
-      
-      // 業（Karma）を蓄積
       incrementRelease()
-      
-      // ソナー音を鳴らす
       audio.triggerOverloadSonar()
-      
-      // 光の波紋（フラッシュ）を発生させる
       setResonancePulse(Date.now())
+      
+      // 他のダイバーへ強いソナーを放つ
+      if (sendResonance) {
+        sendResonance(1.0)
+      }
     }
   })
 
-  // 3. オーディオエンジン（チャージと濁度を連携）
-  const audio = useDeepSeaAudio({
-    enabled: isAudioEnabled,
-    progress,
-    descent: 0, 
-    windSpeed,
-    rainAmount,
+  // 🚨 2. オーディオエンジンにチャージと濁度を連携
+  const audio = useDeepSeaAudio({ 
+    enabled: true, 
+    progress, 
+    windSpeed, 
+    rainAmount, 
+    descent,
     isCharging, // 連携
     turbidity   // 連携
   })
+  
+  const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
 
-  // --- 自動潜行ロジック（例） ---
+  const driftElapsedRef = useRef(0)
+
   useEffect(() => {
-    const timer = setInterval(() => {
-      // 少しずつ深く潜っていく（代償の8%喪失とバランスを取るスピードに調整）
-      setProgress(p => Math.min(1, p + 0.005))
+    const nav = navigator as any
+    let wakeLock: any = null
+
+    const requestWakeLock = async () => {
+      if ('wakeLock' in nav && audio.running) {
+        try {
+          wakeLock = await nav.wakeLock.request('screen')
+        } catch (err: any) {
+          console.warn('Wake Lock error:', err.message)
+        }
+      }
+    }
+
+    const releaseWakeLock = async () => {
+      if (wakeLock !== null) {
+        try {
+          await wakeLock.release()
+          wakeLock = null
+        } catch (err: any) {
+          console.warn('Wake Lock release error:', err.message)
+        }
+      }
+    }
+
+    if (audio.running) {
+      requestWakeLock()
+    } else {
+      releaseWakeLock()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && audio.running) {
+        requestWakeLock()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      releaseWakeLock()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [audio.running])
+
+  // 潜行とセッションのロジック（そのまま）
+  useEffect(() => {
+    if (!settled || !audio.running) return
+
+    let lastTick = Date.now()
+    const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
+    
+    const WORK_MS = 25 * 60 * 1000 
+    const BREAK_MS = 5 * 60 * 1000 
+    const FOCUS_MS = 90 * 60 * 1000 
+    const SLEEP_MS = 60 * 60 * 1000 
+
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      const delta = now - lastTick
+      lastTick = now
+      driftElapsedRef.current += delta
+
+      let newPhase: 'diving' | 'interval' | 'completed' = 'diving'
+      let currentDepth = INITIAL_DEPTH
+
+      if (fathomMode === 'meditate') {
+        if (driftElapsedRef.current < WORK_MS) {
+          newPhase = 'diving'
+          currentDepth = INITIAL_DEPTH + (1.0 - INITIAL_DEPTH) * (driftElapsedRef.current / WORK_MS)
+        } else if (driftElapsedRef.current < WORK_MS + BREAK_MS) {
+          newPhase = 'interval'
+          const breakRatio = (driftElapsedRef.current - WORK_MS) / BREAK_MS
+          currentDepth = 1.0 - (1.0 - INITIAL_DEPTH) * breakRatio 
+        } else {
+          newPhase = 'completed'
+          currentDepth = INITIAL_DEPTH
+        }
+      } else {
+        const DURATION = fathomMode === 'focus' ? FOCUS_MS : SLEEP_MS
+        if (driftElapsedRef.current < DURATION) {
+          newPhase = 'diving'
+          currentDepth = INITIAL_DEPTH + (1.0 - INITIAL_DEPTH) * (driftElapsedRef.current / DURATION)
+        } else {
+          newPhase = 'completed'
+          currentDepth = 1.0
+        }
+      }
+
+      setProgress(currentDepth)
+      
+      if (sessionPhaseRef.current !== newPhase) {
+        sessionPhaseRef.current = newPhase
+        setSessionPhase(newPhase)
+      }
     }, 1000)
-    return () => clearInterval(timer)
+
+    return () => window.clearInterval(timer)
+  }, [audio.running, descent, settled, fathomMode])
+
+  const triggerResonance = useCallback((energy: number) => {
+    setResonanceEnergy(energy)
+    setResonancePulse((p) => p + 1)
   }, [])
 
-  const handleEnableAudio = () => {
-    setIsAudioEnabled(true)
-    audio.start()
+  useEffect(() => {
+    if (sessionPhase === 'interval') {
+      audio.triggerFrictionImpulse({ intensity: 0.6, durationMs: 300, color: 0.1 })
+      triggerResonance(0.8)
+    } else if (sessionPhase === 'completed' && fathomMode === 'meditate') {
+      audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 500, color: 0.5 })
+      triggerResonance(0.4)
+    }
+  }, [sessionPhase, audio, triggerResonance, fathomMode])
+
+  const handleDiveAgain = useCallback(() => {
+    driftElapsedRef.current = 0
+    sessionPhaseRef.current = 'diving'
+    setSessionPhase('diving')
+    setProgress(0.18)
+    audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 150, color: 0.8 })
+    triggerResonance(0.3)
+  }, [audio, triggerResonance])
+
+  const handleRemoteResonance = useCallback((payload: ResonancePulsePayload) => {
+    const peerSeed = (payload as any).senderId || (payload as any).letterId || 'anonymous-tide-seed'
+    const peerDepth = (payload as any).depth ?? progress 
+
+    const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
+    const damped = Math.max(0.1, Math.min(0.4, payload.energy * 0.6)) * volumeDamp
+
+    const panValue = audio.triggerSpatialResonance(peerSeed, peerDepth, damped)
+    triggerResonance(damped)
+
+    const rippleId = Date.now() + Math.random()
+    setRipples(prev => [...prev, { id: rippleId, pan: panValue }])
+    
+    setTimeout(() => {
+      setRipples(prev => prev.filter(r => r.id !== rippleId))
+    }, 3500)
+  }, [audio, triggerResonance, fathomMode, progress])
+
+  // 🚨 手紙の購読UIは削除し、通信（ソナー送受信）のバックエンド機能だけを残す
+  const { latestHeatmapPulse, sendResonance } = useRealtimeLetters({
+    roomId: ROOM_ID, selfId: selfId || 'loading', selfName: 'visitor', city: data?.city, depth: progress, descent,
+    currentWeatherSnapshot: weatherSnapshot, preferredLang: null, onRemoteResonance: handleRemoteResonance,
+    enableFirstSurfacing: false, 
+    firstSurfacingGraceMs: 1600,
+  })
+
+  const handleDescend = useCallback((selectedMode: FathomMode) => {
+    if (hasDescended) return
+    setFathomMode(selectedMode)
+    setHasDescended(true)
+    setBeaconLeaving(true)
+    beginDescent()
+    void audio.resume() // startからresumeに変更して安全に再生
+    triggerResonance(0.22)
+    window.setTimeout(() => setBeaconMounted(false), 650)
+  }, [audio, beginDescent, hasDescended, triggerResonance])
+
+  const uiOpacity = useMemo(() => {
+    if (fathomMode !== 'sleep' || !settled) return 1.0
+    return Math.max(0.08, 1.0 - (Math.max(0, (progress - 0.25) / 0.75)) * 1.5)
+  }, [fathomMode, settled, progress])
+
+  const currentPressure = (1 + progress * 10).toFixed(2)
+
+  if (isSeedLoading || !selfId) {
+    return (
+       <main className="scene-root" style={{ background: '#02050a' }}>
+         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', fontSize: 11, letterSpacing: '0.2em' }}>
+           synchronizing deep sea seed...
+         </div>
+       </main>
+    )
   }
 
-  // =========================================================================
-  // 🚨 UIレンダー部：過去のテキストフォームや手紙通信を「全削除」し、最小限に。
-  // =========================================================================
   return (
-    <div className="relative w-screen h-screen bg-[#02050A] text-[#8fd8ff] font-mono overflow-hidden flex flex-col">
-      
-      {/* --- WebGL Canvas（クリスタル） --- */}
-      <div className="absolute inset-0 z-0">
-        <DeepSeaCanvas
-          progress={progress}
-          windSpeed={windSpeed}
-          clouds={clouds}
-          rainAmount={rainAmount}
-          temp={temp}
-          diveTimeMs={diveTimeMs}
-          releaseCount={releaseCount}
-          resonancePulse={resonancePulse}
-          isCharging={isCharging}
-          turbidity={turbidity}
-          onChargeStart={startCharge}
-          onChargeStop={stopCharge}
+    <main className="scene-root" style={{ background: '#02050a' }}>
+      <style>{hudStyles}</style>
+
+      {showRestoreModal && (
+        <RestoreMemoryModal 
+          onClose={() => setShowRestoreModal(false)} 
+          onRestore={restoreSeed} 
         />
+      )}
+
+      {/* 🚨 追加：クリスタルにチャージ情報を渡す */}
+      <DeepSeaCanvas
+        progress={progress}
+        windSpeed={windSpeed}
+        rainAmount={rainAmount}
+        clouds={clouds}
+        resonancePulse={resonancePulse}
+        resonanceEnergy={resonanceEnergy}
+        identity={identity}
+        heatmapPulse={latestHeatmapPulse}
+        descent={descent}
+        temp={data?.temp ?? undefined}
+        isSuspended={!audio.running}
+        diveTimeMs={diveTimeMs}     
+        releaseCount={releaseCount} 
+        sessionPhase={sessionPhase} 
+        isCharging={isCharging}       // 追加
+        turbidity={turbidity}         // 追加
+        onChargeStart={startCharge}   // 追加
+        onChargeStop={stopCharge}     // 追加
+      />
+
+      <div className="scene-vignette" />
+
+      <EdgeResonanceOverlay ripples={ripples} />
+
+      <div className="fathom-logo" style={{ opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity) }}>
+        F A T H O M
       </div>
 
-      {/* --- HUD (UI Layer) --- */}
-      {/* pointer-events-none で、クリスタルへのタッチを邪魔しないようにする */}
-      <div className="relative z-10 w-full h-full pointer-events-none p-6 flex flex-col justify-between">
-        
-        {/* Header */}
-        <div className="flex justify-between items-start opacity-70 text-xs">
-          <div>
-            <p>[ SURFACE ]</p>
-            <p>Origin: Anonymous Tide</p>
-            <p>Surface Noise: {windSpeed} m/s</p>
-            <p>Surface Temp: {temp}°C</p>
-          </div>
-          <div>
-            <h1 className="tracking-[0.5em] text-center text-sm">F A T H O M</h1>
-          </div>
-          {/* 右上のUI（手紙や共鳴待ち）は削除し、空白を保つ */}
-          <div className="w-32"></div> 
-        </div>
+      {beaconMounted ? (
+        <BeaconTuningStage 
+          onDescend={handleDescend} 
+          onOpenRestore={() => setShowRestoreModal(true)}
+          isLeaving={beaconLeaving} 
+          targetCity={city} 
+          resolvedCity={data?.city ?? null} 
+          isLoading={loading} 
+          onSearch={(c: string) => setCity(c)} 
+        />
+      ) : null}
 
-        {/* Footer */}
-        <div className="flex justify-between items-end opacity-70 text-xs">
-          <div>
-            <p>[ ABYSS ]</p>
-            <p>Current Depth: {Math.round(progress * 100)}%</p>
-            <p>Pressure: {(1 + progress * 9.9).toFixed(2)} atm</p>
-            <br />
-            <p>[ MEMORY ]</p>
-            <p>Age: {Math.floor(diveTimeMs / 1000)} fth</p>
-            <p>Releases: {releaseCount}</p>
+      <div className="hud-overlay" style={{ position: 'absolute', inset: 0, zIndex: 50, opacity: uiOpacity, transition: 'opacity 2s linear', pointerEvents: 'none' }}>
+        
+        {hasDescended && !settled ? (
+          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: phase === 'descending' ? 0.8 : 0, transition: 'opacity 3s ease' }}>
+            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)' }}>
+              都市のノイズを抜け、至高の孤独へ。<br/>残るのは思考のゆらぎと、遠き共鳴だけ。
+            </p>
+            <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>descending — {Math.round(descent * 100)}%</div>
           </div>
-          
-          {/* Audio Start Button */}
-          {!isAudioEnabled && (
-            <div className="pointer-events-auto">
-              <button 
-                onClick={handleEnableAudio}
-                className="border border-[#8fd8ff] px-4 py-2 hover:bg-[#8fd8ff] hover:text-black transition-colors"
-              >
-                [ START DIVE ]
-              </button>
+        ) : null}
+
+        {hasDescended && settled && sessionPhase === 'interval' ? (
+          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease' }}>
+            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(143,216,255,0.85)' }}>
+              深く潜りすぎた思考を、一度水面へ。<br/>ゆっくりと光の中へ浮上します。
+            </p>
+            <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>decompressing — {Math.round(progress * 100)}%</div>
+          </div>
+        ) : null}
+
+        {hasDescended && settled && sessionPhase === 'completed' && fathomMode === 'meditate' ? (
+          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', pointerEvents: 'auto' }}>
+            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)', marginBottom: 32 }}>
+              水面に到達しました。<br/>息を整え、次の深淵へ。
+            </p>
+            <button className="hud-btn" onClick={handleDiveAgain} style={{ fontSize: 12, padding: '8px 24px', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 24 }}>
+              [ descend again ]
+            </button>
+          </div>
+        ) : null}
+
+        {hasDescended && settled ? (
+          <>
+            <div className={`hud-top-left ${visibilityClass(settled, 1)}`}>
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ SURFACE ]</div>
+              <div style={{ marginBottom: 4 }}>Origin: {data?.city ?? 'Unknown'}</div>
+              <div style={{ marginBottom: 4 }}>Surface Noise: {windSpeed.toFixed(1)} m/s</div>
+              <div>Surface Temp: {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}</div>
             </div>
-          )}
 
-          <div className="text-right opacity-50">
-            {turbidity > 0.8 ? (
-              <p className="animate-pulse text-red-400">Turbulence detected. Please wait.</p>
-            ) : (
-              <p>Press and hold the crystal to release...</p>
-            )}
-          </div>
-        </div>
-        
-        {/* 🚨 下部にあった <form> のテキスト入力ボックスは完全に消滅しました */}
+            <div className={`hud-bottom-left ${visibilityClass(settled, 2)}`}>
+              <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>
+                {sessionPhase === 'interval' ? '[ DECOMPRESSION ]' : '[ ABYSS ]'}
+              </div>
+              <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
+              <div style={{ marginBottom: 12 }}>Pressure: {currentPressure} atm</div>
+              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
+              <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
+              <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>
+              
+              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ MEMORY ]</div>
+              <div style={{ marginBottom: 4 }}>Age: {Math.floor(diveTimeMs / 60000)} fth</div>
+              <div style={{ marginBottom: 4 }}>Releases: {releaseCount}</div>
+            </div>
+
+            <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
+              
+              {/* 🚨 テキスト入力を削除し、長押しのガイドとペナルティ警告に置き換え */}
+              {sessionPhase === 'diving' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+                  <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.15em' }} className="font-mincho">
+                    {turbidity > 0.8 ? (
+                      <span style={{ color: 'rgba(255,100,100,0.8)', animation: 'pulse 2s infinite' }}>深海が荒れています。静寂をお待ちください。</span>
+                    ) : (
+                      <span>（ 結晶に触れ、圧力を解放する ）</span>
+                    )}
+                  </div>
+                </div>
+              ) : sessionPhase === 'interval' ? (
+                <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.1em', marginBottom: 24 }} className="font-mincho">
+                  （ 減圧中：水面で息を整えてください ）
+                </div>
+              ) : null}
+
+              <div style={{ display: 'flex', gap: 24 }}>
+                {!audio.running ? (
+                  <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ resume ]</button>
+                ) : (
+                  <button className="hud-btn" onClick={() => void audio.suspend()}>[ suspend ]</button>
+                )}
+              </div>
+            </div>
+          </>
+        ) : null}
       </div>
-    </div>
+    </main>
   )
 }
