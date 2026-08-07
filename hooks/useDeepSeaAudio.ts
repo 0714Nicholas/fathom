@@ -44,7 +44,15 @@ function createPinkNoiseBuffer(ctx: AudioContext, duration: number = 5.0) {
   return buffer
 }
 
-export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, windSpeed: number, rainAmount: number, descent: number }) {
+export function useDeepSeaAudio(opts: { 
+  enabled: boolean, 
+  progress: number, 
+  windSpeed: number, 
+  rainAmount: number, 
+  descent: number,
+  isCharging?: boolean,
+  turbidity?: number 
+}) {
   const ctxRef = useRef<AudioContext | null>(null)
   const [running, setRunning] = useState(false)
   
@@ -92,14 +100,14 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     noiseGain.gain.value = 0.35 // ベース音量
     pinkNoiseGainRef.current = noiseGain
     
-    // 🚨 自律神経チューニング: 深い呼吸（約7秒周期 = 0.14Hz）のLFOで海鳴りを揺らす
+    // 呼吸のLFO
     const breathLFO = ctx.createOscillator()
     breathLFO.type = 'sine'
     breathLFO.frequency.value = 0.14 
     const breathGain = ctx.createGain()
-    breathGain.gain.value = 0.15 // 揺らぎの深さ
+    breathGain.gain.value = 0.15 
     breathLFO.connect(breathGain)
-    breathGain.connect(noiseGain.gain) // 音量をゆっくり上下させる
+    breathGain.connect(noiseGain.gain) 
     breathLFO.start()
 
     noiseSrc.connect(noiseFilter)
@@ -156,18 +164,30 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
 
   const start = resume
 
+  // --- Depth, Charging, and Turbidity ---
   useEffect(() => {
     if (!ctxRef.current || !pinkNoiseFilterRef.current || !subDroneGainRef.current) return
     const ctx = ctxRef.current
     const now = ctx.currentTime
     
-    const targetFreq = 100 + (1 - opts.progress) * 800
-    pinkNoiseFilterRef.current.frequency.setTargetAtTime(targetFreq, now, 2.0)
+    // 濁度（Turbidity）が高い時、フィルターが開いて耳障りな高音ノイズが混ざる
+    const currentTurbidity = opts.turbidity || 0
+    const targetFreq = currentTurbidity > 0 ? 3000 + (currentTurbidity * 5000) : 100 + (1 - opts.progress) * 800
+    pinkNoiseFilterRef.current.frequency.setTargetAtTime(targetFreq, now, 1.0)
     
-    const targetSub = opts.progress * 0.4
-    subDroneGainRef.current.gain.setTargetAtTime(targetSub, now, 2.0)
-  }, [opts.progress])
+    // 濁っている時は、海鳴りの音量自体も少し暴れさせる
+    if (pinkNoiseGainRef.current) {
+      const baseGain = 0.35 + (currentTurbidity * 0.3)
+      pinkNoiseGainRef.current.gain.setTargetAtTime(baseGain, now, 1.0)
+    }
 
+    // チャージ中はサブベース（ドローン）が強烈にうなりを上げる
+    const baseSub = opts.progress * 0.4
+    const chargeSub = opts.isCharging ? 0.8 : 0.0
+    subDroneGainRef.current.gain.setTargetAtTime(baseSub + chargeSub, now, 0.5)
+  }, [opts.progress, opts.isCharging, opts.turbidity])
+
+  // --- Descent ---
   useEffect(() => {
     if (!ctxRef.current || !descentGainRef.current || !descentFilterRef.current) return
     const ctx = ctxRef.current
@@ -181,6 +201,7 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     }
   }, [opts.descent, opts.progress])
 
+  // --- Ecosystem (Whales and Bubbles) ---
   useEffect(() => {
     if (!running || !ctxRef.current || !masterGainRef.current || !reverbRef.current) return
     const ctx = ctxRef.current
@@ -191,7 +212,6 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
       const isDeep = opts.progress > 0.4
       
       if (isDeep) {
-        // --- クジラ（より有機的に） ---
         if (Math.random() > 0.6) {
           const osc = ctx.createOscillator()
           const gain = ctx.createGain()
@@ -215,7 +235,6 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
           osc.stop(ctx.currentTime + 4.5)
         }
       } else {
-        // --- 🚨修正: リアルな水中の気泡音（ポコッ） ---
         if (Math.random() > 0.3) {
           const osc = ctx.createOscillator()
           const gain = ctx.createGain()
@@ -225,22 +244,18 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
           osc.type = 'sine'
           const startFreq = 250 + Math.random() * 150
           osc.frequency.setValueAtTime(startFreq, ctx.currentTime)
-          // 水中の気泡は「空間が潰れる」ため、ピッチが急上昇するのが正解
           osc.frequency.exponentialRampToValueAtTime(startFreq * 1.5, ctx.currentTime + 0.04) 
           
-          // くぐもった水中の質感を出すフィルター
           filter.type = 'lowpass'
           filter.frequency.value = 800
           
           panner.pan.value = Math.random() * 2 - 1
           
-          // 極めて短いアタックとディケイで「弾ける」質感を表現
           gain.gain.setValueAtTime(0, ctx.currentTime)
           gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.01)
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06)
           
           osc.connect(gain).connect(filter).connect(panner).connect(masterGainRef.current!)
-          // 泡の音は残響に少しだけ流す（洞窟っぽさ）
           const reverbSend = ctx.createGain()
           reverbSend.gain.value = 0.3
           panner.connect(reverbSend).connect(reverbRef.current!)
@@ -258,6 +273,7 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     return () => clearTimeout(timeoutId)
   }, [running, opts.progress])
 
+  // --- Interactions ---
   const triggerFrictionImpulse = useCallback((payload: { intensity: number, durationMs: number, color: number }) => {
     if (!ctxRef.current || !masterGainRef.current || !reverbRef.current) return
     const ctx = ctxRef.current
@@ -286,7 +302,6 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     const hash = hashCode(peerSeed)
     
     const baseFreq = 120 + (Math.abs(hash) % 250)
-    
     const panValue = ((Math.abs(hash * 31) % 100) / 50) - 1.0
     const panner = ctx.createStereoPanner()
     panner.pan.value = panValue
@@ -329,6 +344,28 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     return panValue
   }, [opts.progress])
 
+  // 🚨 新規追加: 長押し解放時の巨大ソナー音
+  const triggerOverloadSonar = useCallback(() => {
+    if (!ctxRef.current || !masterGainRef.current || !reverbRef.current) return
+    const ctx = ctxRef.current
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(150, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 2.0)
+    
+    gain.gain.setValueAtTime(0, ctx.currentTime)
+    gain.gain.linearRampToValueAtTime(1.0, ctx.currentTime + 0.05) // 強烈なアタック
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4.0) // 長い余韻
+    
+    osc.connect(gain).connect(masterGainRef.current)
+    gain.connect(reverbRef.current)
+    
+    osc.start()
+    osc.stop(ctx.currentTime + 4.5)
+  }, [])
+
   return {
     running,
     start,
@@ -336,5 +373,6 @@ export function useDeepSeaAudio(opts: { enabled: boolean, progress: number, wind
     suspend,
     triggerFrictionImpulse,
     triggerSpatialResonance,
+    triggerOverloadSonar // 追加
   }
 }
