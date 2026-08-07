@@ -2,9 +2,114 @@
 
 import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Sphere, Icosahedron, MeshTransmissionMaterial, Float, Environment, MeshDistortMaterial } from '@react-three/drei'
+import { Sphere, MeshTransmissionMaterial, Float, Environment } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
+
+// --------------------------------------------------------
+// 🚨 魂のコア（Karma）を司るWebGLシェーダー
+// --------------------------------------------------------
+
+const karmaVertexShader = `
+  uniform float uTime;
+  uniform float uAge;       // 0.0(初期) 〜 1.0(究極の結晶)
+  uniform float uResonance; // ソナーの共鳴エネルギー
+
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vViewPosition;
+  varying vec3 vWorldPosition;
+
+  void main() {
+    vUv = uv;
+    vec3 p = position;
+    
+    // --- 1. 相転移（State of Matter）の計算 ---
+    // Ageに応じて、球体(L2) から 正八面体(L1) へと頂点座標をモーフさせる
+    float l1_norm = abs(p.x) + abs(p.y) + abs(p.z);
+    // 収縮しすぎないように 1.2倍してスケールを補正
+    vec3 octahedron = (p / l1_norm) * 1.2; 
+    
+    vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
+    
+    // --- 2. 呼吸と共鳴（Resonance） ---
+    float pulse = sin(uTime * 5.0) * 0.05 * uResonance;
+    morphedPos += normal * pulse;
+
+    vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
+    vec4 mvPosition = viewMatrix * worldPosition;
+    
+    vWorldPosition = worldPosition.xyz;
+    vViewPosition = -mvPosition.xyz;
+    
+    // 法線のブレンド
+    vNormal = normalize(normalMatrix * mix(normal, normalize(octahedron), smoothstep(0.0, 1.0, uAge)));
+    
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`
+
+const karmaFragmentShader = `
+  uniform float uTime;
+  uniform float uRelease;    // 手放した回数（0.0 〜 1.0）
+  uniform float uResonance;  
+  uniform vec3 uBaseColor;   
+
+  varying vec2 vUv;
+  varying vec3 vNormal;
+  varying vec3 vViewPosition;
+  varying vec3 vWorldPosition;
+
+  // FBM (Fractal Brownian Motion) ノイズ関数
+  float hash(float n) { return fract(sin(n) * 1e4); }
+  float noise(vec3 x) {
+    const vec3 step = vec3(110, 241, 171);
+    vec3 i = floor(x); vec3 f = fract(x);
+    float n = dot(i, step);
+    vec3 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash(n + dot(step, vec3(0, 0, 0))), hash(n + dot(step, vec3(1, 0, 0))), u.x),
+                   mix(hash(n + dot(step, vec3(0, 1, 0))), hash(n + dot(step, vec3(1, 1, 0))), u.x), u.y),
+               mix(mix(hash(n + dot(step, vec3(0, 0, 1))), hash(n + dot(step, vec3(1, 0, 1))), u.x),
+                   mix(hash(n + dot(step, vec3(0, 1, 1))), hash(n + dot(step, vec3(1, 1, 1))), u.x), u.y), u.z);
+  }
+
+  // 薄膜干渉カラーパレット
+  vec3 palette(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d) {
+    return a + b * cos(6.28318 * (c * t + d));
+  }
+
+  void main() {
+    vec3 normal = normalize(vNormal);
+    vec3 viewDir = normalize(vViewPosition);
+
+    // --- フラクタル構造の複雑化 ---
+    // Releaseが増えるほどノイズが細かく、深くなる
+    vec3 p = vWorldPosition * (2.0 + uRelease * 6.0) + uTime * 0.1;
+    float fbmNoise = noise(p) * 0.5 + noise(p * 2.0) * 0.25;
+    
+    // --- 構造色（Iridescence）の計算 ---
+    float fresnel = max(0.0, dot(normal, viewDir));
+    float interference = fresnel + (fbmNoise * uRelease * 2.0);
+    
+    vec3 a = vec3(0.5); vec3 b = vec3(0.5); vec3 c = vec3(1.0);
+    vec3 d = vec3(0.0, 0.33, 0.67) + (uTime * 0.05);
+    
+    vec3 iridescenceColor = palette(interference, a, b, c, d);
+    
+    // 暗いベース色と構造色のブレンド
+    vec3 finalColor = mix(uBaseColor * 0.3, iridescenceColor, smoothstep(0.0, 1.0, uRelease));
+    
+    // ソナー受信時に白青く発光する
+    finalColor += vec3(0.8, 0.9, 1.0) * uResonance * (0.4 + fbmNoise * 0.6);
+
+    float alpha = clamp(0.9 + (uResonance * 0.1), 0.0, 1.0);
+    gl_FragColor = vec4(finalColor, alpha);
+  }
+`
+
+// --------------------------------------------------------
+// メインコンポーネント
+// --------------------------------------------------------
 
 export function CrystalCoral({ 
   progress = 0, 
@@ -16,40 +121,39 @@ export function CrystalCoral({
   diveTimeMs = 0,
   releaseCount = 0
 }: DeepSeaCanvasProps) {
+  
   const outerMatRef = useRef<any>(null)
-  
-  const innerPlasmaRef = useRef<any>(null)
-  const innerSolidRef = useRef<any>(null)
-  const innerSolidMeshRef = useRef<THREE.Mesh>(null)
-  
   const groupRef = useRef<THREE.Group>(null)
+  const karmaMatRef = useRef<THREE.ShaderMaterial>(null)
   
   const prevPulse = useRef(resonancePulse)
   const flashEnergy = useRef(0)
 
-  const evolutionScore = (diveTimeMs / 60000) + (releaseCount * 5)
-  const evolutionRatio = useMemo(() => THREE.MathUtils.clamp(evolutionScore / 100, 0, 1), [evolutionScore])
-
+  // あなたの既存コード：温度による色の変化
   const colorRatio = useMemo(() => THREE.MathUtils.clamp((temp + 10) / 45, 0, 1), [temp])
-  const coreColors = useMemo(() => {
-    const coldEmissive = new THREE.Color('#0044ff') 
-    const hotEmissive = new THREE.Color('#00ff66')  
-    return {
-      emissive: new THREE.Color().lerpColors(coldEmissive, hotEmissive, colorRatio)
-    }
+  const baseEmissive = useMemo(() => {
+    const cold = new THREE.Color('#0044ff') 
+    const hot = new THREE.Color('#00ff66')  
+    return new THREE.Color().lerpColors(cold, hot, colorRatio)
   }, [colorRatio])
 
   const outerColors = useMemo(() => {
-    const coldAtten = new THREE.Color('#88ccff')
-    const hotAtten = new THREE.Color('#88ffcc')
-    return new THREE.Color().lerpColors(coldAtten, hotAtten, colorRatio)
+    const cold = new THREE.Color('#88ccff')
+    const hot = new THREE.Color('#88ffcc')
+    return new THREE.Color().lerpColors(cold, hot, colorRatio)
   }, [colorRatio])
 
   const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.2, 0.4, clouds / 100), [clouds])
   const waterMurkiness = useMemo(() => Math.max(0.05, THREE.MathUtils.lerp(0.05, 0.2, Math.min(rainAmount / 5, 1))), [rainAmount])
 
-  const glassThickness = useMemo(() => THREE.MathUtils.lerp(1.5, 3.5, evolutionRatio), [evolutionRatio])
-  const glassIor = useMemo(() => THREE.MathUtils.lerp(1.2, 1.28, evolutionRatio), [evolutionRatio])
+  // シェーダーへ渡すUniforms
+  const karmaUniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uAge: { value: 0 },
+    uRelease: { value: 0 },
+    uResonance: { value: 0 },
+    uBaseColor: { value: baseEmissive }
+  }), [baseEmissive])
 
   useFrame((state, delta) => {
     if (resonancePulse > prevPulse.current) {
@@ -57,57 +161,43 @@ export function CrystalCoral({
       prevPulse.current = resonancePulse
     }
     flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.4)
-
+    
     const time = state.clock.elapsedTime
+    const depthHardening = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1)
 
-    const depthHardening = THREE.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
-
-    const baseGlow = 1.5 + Math.sin(time * 3.0) * 0.5 
-    const flashGlow = flashEnergy.current * 5.0 
-
-    // 1. 液状コア（Plasma）：硬化が進むにつれて透明になって消えていく
-    if (innerPlasmaRef.current) {
-      innerPlasmaRef.current.emissiveIntensity = baseGlow + flashGlow;
-      innerPlasmaRef.current.opacity = 1.0 - depthHardening; // 🚨 透明度を下げてフェードアウト
+    // 🚨 1. インナーコア（Karma）の更新
+    if (karmaMatRef.current) {
+      const uniforms = karmaMatRef.current.uniforms
+      uniforms.uTime.value = time
       
-      const pressureDistortion = progress * 0.3
-      const evolutionDistortion = evolutionRatio * 0.4 
-      innerPlasmaRef.current.distort = 0.5 + pressureDistortion + evolutionDistortion + flashEnergy.current * 0.4
-      innerPlasmaRef.current.speed = 8.0 + (evolutionRatio * 6.0) + flashEnergy.current * 6.0
+      // Age: 例として10時間(36,000,000 ms)で完全な正八面体になるよう設定
+      const targetAge = Math.min(1.0, diveTimeMs / 36000000)
+      uniforms.uAge.value = THREE.MathUtils.lerp(uniforms.uAge.value, targetAge, 0.02)
+      
+      // Release: 100回手放すと完全なフラクタル構造色になるよう設定
+      const targetRelease = Math.min(1.0, releaseCount / 100)
+      uniforms.uRelease.value = THREE.MathUtils.lerp(uniforms.uRelease.value, targetRelease, 0.02)
+      
+      uniforms.uResonance.value = flashEnergy.current
     }
 
-    // 2. 固体コア（Solid）：硬化が進むにつれて浮かび上がり、回転する
-    if (innerSolidRef.current && innerSolidMeshRef.current) {
-      // 🚨 水深50%までは完全に非表示にして、黒いゴミが突き抜けるのを防ぐ
-      innerSolidMeshRef.current.visible = depthHardening > 0;
-      
-      innerSolidRef.current.emissiveIntensity = (baseGlow + flashGlow) * 2.0;
-      innerSolidRef.current.opacity = depthHardening; // 🚨 徐々に不透明になって現れる
-      
-      // 🚨 出現時に少しずつ大きくなる演出（0.5倍から1.0倍へ）
-      const solidScale = 0.5 + depthHardening * 0.5;
-      innerSolidMeshRef.current.scale.set(solidScale, solidScale, solidScale);
-
-      innerSolidMeshRef.current.rotation.x += delta * (0.2 + depthHardening * 0.5);
-      innerSolidMeshRef.current.rotation.y += delta * (0.3 + depthHardening * 0.8);
-    }
-
-    // 3. 外側のガラス（Shell）
+    // 🚨 2. アウターガラス（Shell）の更新（あなたの既存ロジック）
     if (outerMatRef.current) {
       const flashAtten = new THREE.Color('#ffffff') 
       outerMatRef.current.attenuationColor.lerpColors(outerColors, flashAtten, flashEnergy.current)
 
       const baseDistortion = 0.4 + (windSpeed * 0.06)
-      const currentTemporalDistortion = 0.2 + (windSpeed * 0.05) + flashEnergy.current * 1.5;
-      outerMatRef.current.temporalDistortion = THREE.MathUtils.lerp(currentTemporalDistortion, 0.0, depthHardening);
+      const currentTemporalDistortion = 0.2 + (windSpeed * 0.05) + flashEnergy.current * 1.5
+      outerMatRef.current.temporalDistortion = THREE.MathUtils.lerp(currentTemporalDistortion, 0.0, depthHardening)
       
-      const currentDistortion = baseDistortion + flashEnergy.current * 1.5;
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(currentDistortion, 0.8, depthHardening);
+      const currentDistortion = baseDistortion + flashEnergy.current * 1.5
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(currentDistortion, 0.8, depthHardening)
 
-      outerMatRef.current.ior = THREE.MathUtils.lerp(glassIor, 1.45, depthHardening);
-      outerMatRef.current.thickness = THREE.MathUtils.lerp(glassThickness, 5.0, depthHardening);
+      outerMatRef.current.ior = THREE.MathUtils.lerp(1.2, 1.45, depthHardening)
+      outerMatRef.current.thickness = THREE.MathUtils.lerp(1.5, 5.0, depthHardening)
     }
 
+    // 🚨 3. 全体の浮遊と振動アニメーション
     if (groupRef.current) {
       groupRef.current.rotation.y += delta * 0.15
       groupRef.current.rotation.z = Math.sin(time * 0.4) * 0.05
@@ -117,16 +207,12 @@ export function CrystalCoral({
       const wobbleZ = 1 + Math.sin(time * 0.9) * 0.025 + Math.cos(time * 1.5) * 0.015
 
       const baseScale = 0.55 - (progress * 0.03)
-      
       const flashExpand = flashEnergy.current * 0.15
-      const flashVibrateX = Math.sin(time * 20) * flashEnergy.current * 0.03
-      const flashVibrateY = Math.cos(time * 23) * flashEnergy.current * 0.03
-
-      const targetX = baseScale * wobbleX + flashExpand + flashVibrateX
-      const targetY = baseScale * wobbleY + flashExpand + flashVibrateY
-      const targetZ = baseScale * wobbleZ + flashExpand
-
-      groupRef.current.scale.lerp(new THREE.Vector3(targetX, targetY, targetZ), delta * 5)
+      
+      groupRef.current.scale.lerp(
+        new THREE.Vector3(baseScale * wobbleX + flashExpand, baseScale * wobbleY + flashExpand, baseScale * wobbleZ + flashExpand), 
+        delta * 5
+      )
     }
   })
 
@@ -137,43 +223,30 @@ export function CrystalCoral({
       <Environment preset="night" />
 
       <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-        {/* 🚨 1. 潜行前半：液状のプラズマコア（透明度を有効化） */}
-        <Sphere args={[0.4, 64, 64]}> 
-          <MeshDistortMaterial
-            ref={innerPlasmaRef}
-            color="#000000" 
-            emissive={coreColors.emissive} 
-            emissiveIntensity={1.5} 
-            toneMapped={false}
-            distort={0.6} 
-            speed={8}  
-            transparent={true} // 🚨 追加：透けるようにする
+        {/* 🚨 魂のコア：Karma（AgeとRelease）によって球体から正八面体へ形を変え、構造色を放つ */}
+        <Sphere args={[0.55, 64, 64]}> 
+          <shaderMaterial
+            ref={karmaMatRef}
+            args={[{
+              uniforms: karmaUniforms,
+              vertexShader: karmaVertexShader,
+              fragmentShader: karmaFragmentShader,
+              transparent: true,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false
+            }]}
           />
         </Sphere>
-
-        {/* 🚨 2. 潜行後半：硬化して浮かび上がる神聖幾何学（透明度を有効化） */}
-        <Icosahedron ref={innerSolidMeshRef} args={[0.35, 0]} visible={false}>
-          <meshStandardMaterial
-            ref={innerSolidRef}
-            color="#000000"
-            emissive={coreColors.emissive}
-            emissiveIntensity={0} 
-            toneMapped={false}
-            roughness={0.2}
-            metalness={0.8}
-            wireframe={false} 
-            transparent={true} // 🚨 追加：透けるようにする
-          />
-        </Icosahedron>
       </Float>
 
+      {/* 🚨 外殻：あなたが作り上げた美しい屈折ガラス（深度で硬化する） */}
       <Sphere args={[1.2, 64, 64]}>
         <MeshTransmissionMaterial
           ref={outerMatRef}
-          thickness={glassThickness}   
+          thickness={1.5}    
           roughness={waterMurkiness}      
           transmission={1.0} 
-          ior={glassIor}               
+          ior={1.2}               
           chromaticAberration={0.05}  
           distortion={0.5}            
           temporalDistortion={0.3}    
