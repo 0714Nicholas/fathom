@@ -6,10 +6,11 @@ import * as THREE from 'three'
 
 export function MarineSnow({ 
   variant = 'near', progress = 0, descent = 0, windSpeed = 0, rainAmount = 0, clouds = 0,
-  isSuspended = false // 🚨 追加
+  isSuspended = false
 }) {
   const pointsRef = useRef<THREE.Points>(null)
-  const localTime = useRef(0) // 🚨 独自の時計を用意
+  const localTime = useRef(0) 
+  const timeScale = useRef(1.0) // 🚨 時間の流れの速さを管理する変数
   
   const count = variant === 'near' ? 350 : 1200
   
@@ -95,14 +96,17 @@ export function MarineSnow({
   }), [variant])
 
   useFrame((_, delta) => {
-    // 🚨 サスペンド(一時停止)中でなければ、時計の針を進める
-    if (!isSuspended) {
-      localTime.current += delta
-    }
+    // 🚨 サスペンド時は時間を止めるのではなく「10%の速度」にゆっくりと落とす
+    const targetScale = isSuspended ? 0.1 : 1.0
+    // deltaを使って滑らかに減速/加速させる
+    timeScale.current = THREE.MathUtils.lerp(timeScale.current, targetScale, delta * 2.0)
+    
+    // スケールされた時間を進める（静止せず、めっちゃゆっくりと沈み続ける）
+    localTime.current += delta * timeScale.current
 
     if (pointsRef.current) {
       const mat = pointsRef.current.material as THREE.ShaderMaterial
-      mat.uniforms.uTime.value = localTime.current // 🚨 独自の時間を渡す
+      mat.uniforms.uTime.value = localTime.current
       mat.uniforms.uDescent.value = THREE.MathUtils.lerp(mat.uniforms.uDescent.value, descent, 0.1)
     }
   })
