@@ -21,7 +21,7 @@ export interface DeepSeaCanvasProps {
   identity?: any
   resonancePulse?: number
   resonanceEnergy?: number
-  heatmapPulse?: number
+  heatmapPulse?: any
   
   // 新機能：アビサル・オーバーロード（長押しチャージ）関連
   isCharging?: boolean

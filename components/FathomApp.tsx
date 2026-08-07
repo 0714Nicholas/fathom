@@ -629,7 +629,7 @@ export function FathomApp() {
         resonancePulse={resonancePulse}
         resonanceEnergy={resonanceEnergy}
         identity={identity}
-        heatmapPulse={latestHeatmapPulse}
+        heatmapPulse={latestHeatmapPulse as any}
         descent={descent}
         temp={data?.temp ?? undefined}
         isSuspended={!audio.running}
