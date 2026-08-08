@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useMemo } from 'react'
-import { useFrame, useThree } from '@react-three/fiber' // 🚨 useThreeを追加
+import { useFrame, useThree } from '@react-three/fiber' 
 import { Sphere, MeshTransmissionMaterial, Float, Environment } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
@@ -40,11 +40,15 @@ const karmaVertexShader = `
     
     vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
     
-    float turbulence = noise(p * 8.0 + uTime * 15.0) * 0.15 * uCharge;
+    // 🚨 内側のコアが強烈にうごめく表現（激しい乱流）
+    float turbulence = (noise(p * 10.0 + uTime * 30.0) - 0.5) * 0.4 * uCharge;
     float shockwave = sin(length(p) * 20.0 - uTime * 20.0) * 0.15 * pow(uFlash, 1.5);
     float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     
-    morphedPos += normal * (pulse + turbulence + shockwave);
+    // 🚨 チャージ中はコア自体が少し縮みながら脈打つ（凝縮感）
+    float condense = -0.1 * uCharge;
+    
+    morphedPos += normal * (pulse + turbulence + shockwave + condense);
 
     vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
     vec4 mvPosition = viewMatrix * worldPosition;
@@ -102,7 +106,13 @@ const karmaFragmentShader = `
     vec3 iridescenceColor = palette(interference, a, b, c, d);
     vec3 finalColor = mix(uBaseColor, iridescenceColor, smoothstep(0.0, 1.0, uRelease));
     
-    vec3 chargeGlow = vec3(0.9, 0.1, 0.3) * uCharge * 1.5; 
+    // 🚨 赤黒い・青黒い「焔（Dark Flame）」の表現
+    float flameNoise = noise(p * 15.0 - vec3(0.0, uTime * 20.0, 0.0));
+    vec3 flameBase = vec3(0.01, 0.02, 0.05); // 深い闇
+    vec3 flameHot = vec3(0.9, 0.1, 0.2);     // 激しいクリムゾン
+    vec3 darkFlame = mix(flameBase, flameHot, smoothstep(0.2, 0.8, flameNoise));
+    
+    vec3 chargeGlow = darkFlame * uCharge * 5.0; // 焔を強烈に光らせる
     vec3 pulseGlow = vec3(0.2, 0.8, 1.0) * uFlash * 3.5;
     float core = smoothstep(0.6, 0.0, length(vNormal.xy)) * pow(uFlash, 2.0) * 4.0;
 
@@ -127,7 +137,7 @@ export function CrystalCoral({
   const flashEnergy = useRef(0)
   const chargeLevel = useRef(0)
 
-  const { viewport } = useThree() // 🚨 カメラが捉えている画面の情報を取得
+  const { viewport } = useThree() 
 
   const baseEmissive = useMemo(() => new THREE.Color('#002266'), [])
   const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.2, 0.5, clouds / 100), [clouds])
@@ -166,7 +176,7 @@ export function CrystalCoral({
       uniforms.uFlash.value = flashEnergy.current
 
       if (isCharging) {
-        uniforms.uBaseColor.value.lerp(new THREE.Color('#660022'), 0.05) 
+        uniforms.uBaseColor.value.lerp(new THREE.Color('#110005'), 0.1) // 焔のベースとなる暗黒
       } else if (isTuning) {
         const targetHue = 0.5 + (tuningValue / 100) * 0.4
         const tuneColor = new THREE.Color().setHSL(targetHue, 1.0, 0.4)
@@ -178,17 +188,21 @@ export function CrystalCoral({
 
     if (outerMatRef.current) {
       const baseColor = new THREE.Color('#000511')    
-      const chargeColor = new THREE.Color('#220011')  
+      const chargeColor = new THREE.Color('#110005')  // 中の赤黒い焔が見えるよう、少し深みを残す
       const flashColor = new THREE.Color('#88ddff')   
 
       const currentColor = baseColor.clone().lerp(chargeColor, chargeLevel.current)
       currentColor.lerp(flashColor, flashEnergy.current)
       outerMatRef.current.attenuationColor.copy(currentColor)
       
-      const baseDist = 2.0 + (chargeLevel.current * 0.5) 
-      outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(baseDist, 25.0, Math.pow(flashEnergy.current, 0.5)) 
+      const baseDist = 2.0 
+      // 🚨 チャージ中は距離を広げて中の焔を透けさせ、解放時は完全に透過させる
+      const targetDist = THREE.MathUtils.lerp(baseDist, 3.0, chargeLevel.current)
+      outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 25.0, Math.pow(flashEnergy.current, 0.5)) 
       outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.0, flashEnergy.current)
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(0.5, 3.0, Math.max(chargeLevel.current, flashEnergy.current))
+      
+      // 🚨 スライムのような崩壊を防ぐため、チャージ中の歪み上限を抑える（1.0まで）
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(0.5, 1.0, chargeLevel.current) + (flashEnergy.current * 0.5)
     }
 
     if (groupRef.current) {
@@ -200,13 +214,11 @@ export function CrystalCoral({
       const wobbleY = 1 + Math.cos(time * 0.8) * 0.015
       const wobbleZ = 1 + Math.sin(time * 0.9) * 0.015
 
-      // 🚨 レスポンシブ対応：画面が縦長(アスペクト比が1未満)の場合は、スケールを0.7倍にして余白を確保する
       const responsiveScale = viewport.aspect < 1.0 ? 0.7 : 1.0
-      
-      // 基本スケールにレスポンシブ倍率を掛ける
       const baseScale = (1.0 - (progress * 0.05)) * responsiveScale
       
-      const chargeShrink = chargeLevel.current * -0.06 * responsiveScale
+      // 🚨 凝縮感を大幅にアップ：限界まで力強く小さく縮み込む(-0.15)
+      const chargeShrink = chargeLevel.current * -0.15 * responsiveScale
       const flashExpand = flashEnergy.current * 0.5 * responsiveScale
       
       const aftershock = flashEnergy.current * Math.sin(time * 40.0) * 0.02 * responsiveScale

@@ -245,7 +245,7 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
   
   const dragTimeout = useRef<number | null>(null)
   const lastIndex = useRef<number>(-1)
-  // 🚨 最適化: アプリ全体が重くならないよう、親への通知を間引くための時計
+  // 🚨 修正: スマホでのフリーズ（処理落ち）を防ぐため、スロットル間隔を150msに拡大
   const lastTuningUpdate = useRef(0)
 
   useEffect(() => {
@@ -265,12 +265,12 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
   }, [isDragging])
 
   const handleDialChange = (val: number) => {
-    setDialValue(val) // ローカルのUI(スライダー)は最速で動かす
+    setDialValue(val) // UIの動きは最速で行う
     setIsDragging(true)
     
-    // 🚨 最適化 (Throttle): 約30fpsに制限して親コンポーネント(結晶の色変更など)への通知を間引く
     const now = Date.now()
-    if (now - lastTuningUpdate.current > 32) {
+    // 🚨 親コンポーネント(3D描画)への重い通知は150msに1回だけ間引いて送る
+    if (now - lastTuningUpdate.current > 150) {
       onTuningChange(val, true)
       lastTuningUpdate.current = now
     }
