@@ -148,7 +148,6 @@ function EdgeResonanceOverlay({ ripples }: { ripples: { id: number, pan: number 
 }
 
 function downloadCrystalMemory(coordinate: string, depth: number) {
-  // ... (処理そのままなので省略せずに記載)
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
   if (!ctx) return
@@ -238,7 +237,6 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
   )
 }
 
-// 🚨 追加修正: propsにチューニング連携用の関数を追加
 function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, isLoading, onSearch, onTuningChange, onCitySnap }: any) {
   const [mode, setMode] = useState<FathomMode>('focus')
   const [dialValue, setDialValue] = useState(50)
@@ -247,6 +245,8 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
   
   const dragTimeout = useRef<number | null>(null)
   const lastIndex = useRef<number>(-1)
+  // 🚨 最適化: アプリ全体が重くならないよう、親への通知を間引くための時計
+  const lastTuningUpdate = useRef(0)
 
   useEffect(() => {
     if (!targetCity) {
@@ -265,11 +265,15 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
   }, [isDragging])
 
   const handleDialChange = (val: number) => {
-    setDialValue(val)
+    setDialValue(val) // ローカルのUI(スライダー)は最速で動かす
     setIsDragging(true)
     
-    // 🚨 ドラッグ中であることを親(Crystal)に伝える
-    onTuningChange(val, true)
+    // 🚨 最適化 (Throttle): 約30fpsに制限して親コンポーネント(結晶の色変更など)への通知を間引く
+    const now = Date.now()
+    if (now - lastTuningUpdate.current > 32) {
+      onTuningChange(val, true)
+      lastTuningUpdate.current = now
+    }
 
     const index = Math.round((val / 100) * (PORTS.length - 1))
     
@@ -277,7 +281,6 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
         navigator.vibrate(10)
       }
-      // 🚨 都市が切り替わった瞬間にクリスタルを共鳴させる
       onCitySnap()
       lastIndex.current = index
     }
@@ -286,8 +289,7 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
     
     dragTimeout.current = window.setTimeout(() => {
       setIsDragging(false)
-      // 🚨 ドラッグが止まったことを親に伝える
-      onTuningChange(val, false)
+      onTuningChange(val, false) // ドラッグ終了時は確実に通知
       
       const port = PORTS[index]
       if (targetCity !== port.query) {
@@ -300,7 +302,6 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     zIndex: 50, display: 'flex', flexDirection: 'column',
     justifyContent: 'flex-end', alignItems: 'center',
-    // 🚨 修正: 見切れを防ぐため、下部の余白を10vhから18vhへ大きく確保
     paddingBottom: '18vh', 
     pointerEvents: 'none',
     opacity: isLeaving ? 0 : 1, transition: 'opacity 1s ease'
@@ -376,7 +377,6 @@ export function FathomApp() {
   const [resonancePulse, setResonancePulse] = useState(0)
   const [resonanceEnergy, setResonanceEnergy] = useState(0.14)
 
-  // 🚨 追加: チューニング状態を保持するState
   const [tuningValue, setTuningValue] = useState(50)
   const [isTuning, setIsTuning] = useState(false)
 
@@ -438,7 +438,6 @@ export function FathomApp() {
   const driftElapsedRef = useRef(0)
 
   useEffect(() => {
-    // ... WakeLock処理
     const nav = navigator as any
     let wakeLock: any = null
     const requestWakeLock = async () => {
@@ -615,7 +614,6 @@ export function FathomApp() {
           turbidity={turbidity}         
           onChargeStart={startCharge}   
           onChargeStop={stopCharge}
-          // 🚨 チューニング状態をキャンバスへ渡す
           tuningValue={tuningValue}
           isTuning={isTuning}     
         />
@@ -638,12 +636,10 @@ export function FathomApp() {
           resolvedCity={data?.city ?? null} 
           isLoading={loading} 
           onSearch={(c: string) => setCity(c)}
-          // 🚨 スライダーからのチューニング情報を受け取りStateに反映
           onTuningChange={(val: number, tuning: boolean) => {
             setTuningValue(val)
             setIsTuning(tuning)
           }}
-          // 🚨 都市が切り替わった瞬間に鼓動を打つ
           onCitySnap={() => triggerResonance(0.4)}
         />
       ) : null}

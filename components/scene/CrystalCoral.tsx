@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useMemo } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber' // 🚨 useThreeを追加
 import { Sphere, MeshTransmissionMaterial, Float, Environment } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
@@ -13,7 +13,7 @@ const karmaVertexShader = `
   uniform float uAge;       
   uniform float uResonance; 
   uniform float uCharge;
-  uniform float uFlash; // 🚨 解放時の圧倒的なエネルギーを独立して管理
+  uniform float uFlash; 
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -40,12 +40,8 @@ const karmaVertexShader = `
     
     vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
     
-    // チャージ中の乱気流（熱量）
     float turbulence = noise(p * 8.0 + uTime * 15.0) * 0.15 * uCharge;
-    
-    // 🚨 解放の瞬間、コアの内側から外側へ強烈な「衝撃波」が突き抜ける
     float shockwave = sin(length(p) * 20.0 - uTime * 20.0) * 0.15 * pow(uFlash, 1.5);
-    
     float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     
     morphedPos += normal * (pulse + turbulence + shockwave);
@@ -106,13 +102,8 @@ const karmaFragmentShader = `
     vec3 iridescenceColor = palette(interference, a, b, c, d);
     vec3 finalColor = mix(uBaseColor, iridescenceColor, smoothstep(0.0, 1.0, uRelease));
     
-    // チャージ中の赤黒いエネルギー
     vec3 chargeGlow = vec3(0.9, 0.1, 0.3) * uCharge * 1.5; 
-    
-    // 🚨 解放の瞬間、透き通るシアンブルーの爆光を放つ
     vec3 pulseGlow = vec3(0.2, 0.8, 1.0) * uFlash * 3.5;
-    
-    // 🚨 コアの中心から溢れ出す純白のエネルギー（余韻を引いてゆっくり消える）
     float core = smoothstep(0.6, 0.0, length(vNormal.xy)) * pow(uFlash, 2.0) * 4.0;
 
     finalColor += pulseGlow + chargeGlow + vec3(core);
@@ -136,6 +127,8 @@ export function CrystalCoral({
   const flashEnergy = useRef(0)
   const chargeLevel = useRef(0)
 
+  const { viewport } = useThree() // 🚨 カメラが捉えている画面の情報を取得
+
   const baseEmissive = useMemo(() => new THREE.Color('#002266'), [])
   const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.2, 0.5, clouds / 100), [clouds])
 
@@ -145,7 +138,7 @@ export function CrystalCoral({
     uRelease: { value: 0 },
     uResonance: { value: 0 },
     uCharge: { value: 0 },
-    uFlash: { value: 0 }, // 追加：解放エネルギー
+    uFlash: { value: 0 }, 
     uBaseColor: { value: baseEmissive.clone() }
   }), [baseEmissive])
 
@@ -155,9 +148,7 @@ export function CrystalCoral({
       prevPulse.current = resonancePulse
     }
     
-    // 🚨 カタルシスの要：減衰係数を極限まで下げて「5秒以上の圧倒的な余韻」を作り出す
     flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.8)
-    
     const targetCharge = isCharging ? 1.0 : 0.0
     chargeLevel.current = THREE.MathUtils.lerp(chargeLevel.current, targetCharge, delta * (isCharging ? 1.5 : 4.0))
 
@@ -195,11 +186,8 @@ export function CrystalCoral({
       outerMatRef.current.attenuationColor.copy(currentColor)
       
       const baseDist = 2.0 + (chargeLevel.current * 0.5) 
-      // 🚨 解放時、光がガラスを突き抜ける距離を限界まで引き上げ、空間全体を照らす
       outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(baseDist, 25.0, Math.pow(flashEnergy.current, 0.5)) 
       outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.0, flashEnergy.current)
-      
-      // 激しい衝撃でガラスも歪む
       outerMatRef.current.distortion = THREE.MathUtils.lerp(0.5, 3.0, Math.max(chargeLevel.current, flashEnergy.current))
     }
 
@@ -212,17 +200,18 @@ export function CrystalCoral({
       const wobbleY = 1 + Math.cos(time * 0.8) * 0.015
       const wobbleZ = 1 + Math.sin(time * 0.9) * 0.015
 
-      const baseScale = 1.0 - (progress * 0.05)
+      // 🚨 レスポンシブ対応：画面が縦長(アスペクト比が1未満)の場合は、スケールを0.7倍にして余白を確保する
+      const responsiveScale = viewport.aspect < 1.0 ? 0.7 : 1.0
       
-      const chargeShrink = chargeLevel.current * -0.06 
-      // 🚨 圧倒的なスケール変化：放した瞬間に一気に「1.5倍」まで巨大化する
-      const flashExpand = flashEnergy.current * 0.5 
+      // 基本スケールにレスポンシブ倍率を掛ける
+      const baseScale = (1.0 - (progress * 0.05)) * responsiveScale
       
-      // 🚨 解放後の余震（アフターショック）：エネルギーの余波で数秒間ブルブルと震え続ける
-      const aftershock = flashEnergy.current * Math.sin(time * 40.0) * 0.02
-
-      const vibrate = isCharging ? Math.sin(time * 80) * 0.015 : 0
-      const tuneExpand = isTuning ? Math.sin(time * 15) * 0.02 : 0
+      const chargeShrink = chargeLevel.current * -0.06 * responsiveScale
+      const flashExpand = flashEnergy.current * 0.5 * responsiveScale
+      
+      const aftershock = flashEnergy.current * Math.sin(time * 40.0) * 0.02 * responsiveScale
+      const vibrate = isCharging ? Math.sin(time * 80) * 0.015 * responsiveScale : 0
+      const tuneExpand = isTuning ? Math.sin(time * 15) * 0.02 * responsiveScale : 0
 
       groupRef.current.scale.lerp(
         new THREE.Vector3(
