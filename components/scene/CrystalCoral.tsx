@@ -40,12 +40,9 @@ const karmaVertexShader = `
     
     vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
     
-    // 🚨 内側のコアが強烈にうごめく表現（激しい乱流）
     float turbulence = (noise(p * 10.0 + uTime * 30.0) - 0.5) * 0.4 * uCharge;
     float shockwave = sin(length(p) * 20.0 - uTime * 20.0) * 0.15 * pow(uFlash, 1.5);
     float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
-    
-    // 🚨 チャージ中はコア自体が少し縮みながら脈打つ（凝縮感）
     float condense = -0.1 * uCharge;
     
     morphedPos += normal * (pulse + turbulence + shockwave + condense);
@@ -106,17 +103,22 @@ const karmaFragmentShader = `
     vec3 iridescenceColor = palette(interference, a, b, c, d);
     vec3 finalColor = mix(uBaseColor, iridescenceColor, smoothstep(0.0, 1.0, uRelease));
     
-    // 🚨 赤黒い・青黒い「焔（Dark Flame）」の表現
     float flameNoise = noise(p * 15.0 - vec3(0.0, uTime * 20.0, 0.0));
-    vec3 flameBase = vec3(0.01, 0.02, 0.05); // 深い闇
-    vec3 flameHot = vec3(0.9, 0.1, 0.2);     // 激しいクリムゾン
+    vec3 flameBase = vec3(0.01, 0.02, 0.05); 
+    vec3 flameHot = vec3(0.9, 0.1, 0.2);     
     vec3 darkFlame = mix(flameBase, flameHot, smoothstep(0.2, 0.8, flameNoise));
     
-    vec3 chargeGlow = darkFlame * uCharge * 5.0; // 焔を強烈に光らせる
-    vec3 pulseGlow = vec3(0.2, 0.8, 1.0) * uFlash * 3.5;
-    float core = smoothstep(0.6, 0.0, length(vNormal.xy)) * pow(uFlash, 2.0) * 4.0;
+    // 🚨 光量を適切にコントロール
+    vec3 chargeGlow = darkFlame * uCharge * 3.0; 
+    vec3 pulseGlow = vec3(0.3, 0.8, 1.0) * uFlash * 1.5;
+    float core = smoothstep(0.7, 0.0, length(vNormal.xy)) * uFlash * 2.5;
 
     finalColor += pulseGlow + chargeGlow + vec3(core);
+
+    // 🚨 白飛び・黒シミ防止のトーンマッピング（Reinhard）
+    // これにより、どんなに眩しい光が重なってもPBRレンダリングが破綻しません
+    finalColor = finalColor / (finalColor + vec3(0.5));
+    finalColor *= 1.2; // 少し明るさを取り戻す
 
     gl_FragColor = vec4(finalColor, 1.0);
   }
@@ -139,7 +141,15 @@ export function CrystalCoral({
 
   const { viewport } = useThree() 
 
-  const baseEmissive = useMemo(() => new THREE.Color('#002266'), [])
+  const surfaceColor = useMemo(() => {
+    const tRatio = THREE.MathUtils.clamp((temp + 10) / 40, 0, 1) 
+    const cold = new THREE.Color('#001133') 
+    const hot = new THREE.Color('#0055aa')  
+    return new THREE.Color().lerpColors(cold, hot, tRatio)
+  }, [temp])
+
+  const deepColor = useMemo(() => new THREE.Color('#000511'), [])
+
   const lightIntensity = useMemo(() => THREE.MathUtils.lerp(1.2, 0.5, clouds / 100), [clouds])
 
   const karmaUniforms = useMemo(() => ({
@@ -149,8 +159,8 @@ export function CrystalCoral({
     uResonance: { value: 0 },
     uCharge: { value: 0 },
     uFlash: { value: 0 }, 
-    uBaseColor: { value: baseEmissive.clone() }
-  }), [baseEmissive])
+    uBaseColor: { value: surfaceColor.clone() }
+  }), [surfaceColor])
 
   useFrame((state, delta) => {
     if (resonancePulse > prevPulse.current) {
@@ -175,34 +185,39 @@ export function CrystalCoral({
       uniforms.uCharge.value = chargeLevel.current
       uniforms.uFlash.value = flashEnergy.current
 
+      const currentEnvironmentColor = surfaceColor.clone().lerp(deepColor, progress)
+
       if (isCharging) {
-        uniforms.uBaseColor.value.lerp(new THREE.Color('#110005'), 0.1) // 焔のベースとなる暗黒
+        uniforms.uBaseColor.value.lerp(new THREE.Color('#110005'), 0.1) 
       } else if (isTuning) {
         const targetHue = 0.5 + (tuningValue / 100) * 0.4
         const tuneColor = new THREE.Color().setHSL(targetHue, 1.0, 0.4)
         uniforms.uBaseColor.value.lerp(tuneColor, 0.15)
       } else {
-        uniforms.uBaseColor.value.lerp(baseEmissive, 0.05)
+        uniforms.uBaseColor.value.lerp(currentEnvironmentColor, 0.05)
       }
     }
 
     if (outerMatRef.current) {
       const baseColor = new THREE.Color('#000511')    
-      const chargeColor = new THREE.Color('#110005')  // 中の赤黒い焔が見えるよう、少し深みを残す
-      const flashColor = new THREE.Color('#88ddff')   
-
+      const chargeColor = new THREE.Color('#110005')  
+      const flashColor = new THREE.Color('#44ccff') // 🚨 眩しすぎない、美しいシアン
+      
       const currentColor = baseColor.clone().lerp(chargeColor, chargeLevel.current)
       currentColor.lerp(flashColor, flashEnergy.current)
       outerMatRef.current.attenuationColor.copy(currentColor)
       
       const baseDist = 2.0 
-      // 🚨 チャージ中は距離を広げて中の焔を透けさせ、解放時は完全に透過させる
       const targetDist = THREE.MathUtils.lerp(baseDist, 3.0, chargeLevel.current)
-      outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 25.0, Math.pow(flashEnergy.current, 0.5)) 
-      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.0, flashEnergy.current)
       
-      // 🚨 スライムのような崩壊を防ぐため、チャージ中の歪み上限を抑える（1.0まで）
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(0.5, 1.0, chargeLevel.current) + (flashEnergy.current * 0.5)
+      // 🚨 無限遠まで光を逃がさないように上限を6.0でカット（黒バグを防止）
+      outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 6.0, flashEnergy.current) 
+      
+      // 🚨 粗さ（Roughness）を絶対に 0.0 にしない（0.015が下限）ことで、マテリアルの計算破綻を防ぐ
+      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.015, flashEnergy.current)
+      
+      const pressureDistortion = THREE.MathUtils.lerp(0.8, 0.2, progress)
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(pressureDistortion, 1.0, chargeLevel.current) + (flashEnergy.current * 0.5)
     }
 
     if (groupRef.current) {
@@ -215,11 +230,13 @@ export function CrystalCoral({
       const wobbleZ = 1 + Math.sin(time * 0.9) * 0.015
 
       const responsiveScale = viewport.aspect < 1.0 ? 0.7 : 1.0
-      const baseScale = (1.0 - (progress * 0.05)) * responsiveScale
       
-      // 🚨 凝縮感を大幅にアップ：限界まで力強く小さく縮み込む(-0.15)
+      const pressureShrink = 1.0 - (progress * 0.15)
+      const baseScale = pressureShrink * responsiveScale
+      
       const chargeShrink = chargeLevel.current * -0.15 * responsiveScale
-      const flashExpand = flashEnergy.current * 0.5 * responsiveScale
+      // 🚨 膨張を少し抑えめにし、締まりのあるシャープな解放を演出
+      const flashExpand = flashEnergy.current * 0.3 * responsiveScale
       
       const aftershock = flashEnergy.current * Math.sin(time * 40.0) * 0.02 * responsiveScale
       const vibrate = isCharging ? Math.sin(time * 80) * 0.015 * responsiveScale : 0

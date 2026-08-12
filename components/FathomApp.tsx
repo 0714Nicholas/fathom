@@ -103,6 +103,20 @@ const hudStyles = `
     text-shadow: 0 0 8px rgba(143, 216, 255, 0.4);
   }
 
+  /* 🚨 通信途絶時のグリッチエフェクト */
+  .glitch-text {
+    animation: glitch-skew 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite;
+    color: rgba(255, 100, 100, 0.8);
+  }
+  @keyframes glitch-skew {
+    0% { transform: skew(0deg); }
+    20% { transform: skew(-20deg); opacity: 0.5; }
+    40% { transform: skew(20deg); opacity: 1; }
+    60% { transform: skew(0deg); opacity: 0.3; }
+    80% { transform: skew(10deg); opacity: 0.8; }
+    100% { transform: skew(0deg); }
+  }
+
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
     .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
@@ -245,7 +259,6 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
   
   const dragTimeout = useRef<number | null>(null)
   const lastIndex = useRef<number>(-1)
-  // 🚨 修正: スマホでのフリーズ（処理落ち）を防ぐため、スロットル間隔を150msに拡大
   const lastTuningUpdate = useRef(0)
 
   useEffect(() => {
@@ -265,11 +278,10 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
   }, [isDragging])
 
   const handleDialChange = (val: number) => {
-    setDialValue(val) // UIの動きは最速で行う
+    setDialValue(val) 
     setIsDragging(true)
     
     const now = Date.now()
-    // 🚨 親コンポーネント(3D描画)への重い通知は150msに1回だけ間引いて送る
     if (now - lastTuningUpdate.current > 150) {
       onTuningChange(val, true)
       lastTuningUpdate.current = now
@@ -289,7 +301,7 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
     
     dragTimeout.current = window.setTimeout(() => {
       setIsDragging(false)
-      onTuningChange(val, false) // ドラッグ終了時は確実に通知
+      onTuningChange(val, false) 
       
       const port = PORTS[index]
       if (targetCity !== port.query) {
@@ -407,6 +419,13 @@ export function FathomApp() {
   const windSpeed = data?.windSpeed ?? 4.2
   const rainAmount = (data?.rain1h ?? 0) + (data?.rain3h ?? 0)
   const clouds = data?.clouds ?? 42
+  
+  // 🚨 水温計算（水面の気温から始まり、海底では約2.0℃まで冷却される）
+  const surfaceTemp = data?.temp ?? 15.0
+  const waterTemp = useMemo(() => {
+    return surfaceTemp - ((surfaceTemp - 2.0) * progress)
+  }, [surfaceTemp, progress])
+
   const weatherSnapshot = useMemo(() => {
     if (!data) return null
     return { city: data.city, windSpeed, rainAmount, clouds, temp: data.temp, description: data.description } as Record<string, unknown>
@@ -605,7 +624,7 @@ export function FathomApp() {
           identity={identity}
           heatmapPulse={latestHeatmapPulse as any} 
           descent={descent}
-          temp={data?.temp ?? undefined}
+          temp={surfaceTemp} // 🚨 気温を渡す
           isSuspended={!audio.running}
           diveTimeMs={diveTimeMs}     
           releaseCount={releaseCount} 
@@ -679,9 +698,18 @@ export function FathomApp() {
           <>
             <div className={`hud-top-left ${visibilityClass(settled, 1)}`}>
               <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ SURFACE ]</div>
-              <div style={{ marginBottom: 4 }}>Origin: {data?.city ?? 'Unknown'}</div>
-              <div style={{ marginBottom: 4 }}>Surface Noise: {windSpeed.toFixed(1)} m/s</div>
-              <div>Surface Temp: {data?.temp != null ? `${data.temp.toFixed(1)}°C` : '—'}</div>
+              {/* 🚨 深度が70%を超えると水面の情報が文字化け(通信途絶)する */}
+              {progress > 0.7 ? (
+                <div className="glitch-text" style={{ fontSize: '11px', marginTop: 12, letterSpacing: '0.2em' }}>
+                  [ SURFACE SIGNAL LOST ]
+                </div>
+              ) : (
+                <div style={{ opacity: 1.0 - (progress * 1.5) }}>
+                  <div style={{ marginBottom: 4 }}>Origin: {data?.city ?? 'Unknown'}</div>
+                  <div style={{ marginBottom: 4 }}>Surface Noise: {windSpeed.toFixed(1)} m/s</div>
+                  <div>Surface Temp: {surfaceTemp.toFixed(1)}°C</div>
+                </div>
+              )}
             </div>
 
             <div className={`hud-bottom-left ${visibilityClass(settled, 2)}`}>
@@ -689,7 +717,12 @@ export function FathomApp() {
                 {sessionPhase === 'interval' ? '[ DECOMPRESSION ]' : '[ ABYSS ]'}
               </div>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
-              <div style={{ marginBottom: 12 }}>Pressure: {currentPressure} atm</div>
+              <div style={{ marginBottom: 4 }}>Pressure: {currentPressure} atm</div>
+              {/* 🚨 追加: 水温表示（潜るほど冷たくなる） */}
+              <div style={{ marginBottom: 12, color: progress > 0.8 ? '#aaddff' : 'inherit' }}>
+                Water Temp: {waterTemp.toFixed(1)}°C
+              </div>
+              
               <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
               <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>

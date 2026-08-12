@@ -49,7 +49,8 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
             windSpeed={props.windSpeed || 0} 
             rainAmount={props.rainAmount || 0}
             clouds={props.clouds || 0} 
-            isSuspended={props.isSuspended} // 🚨 追加
+            isSuspended={props.isSuspended}
+            resonancePulse={props.resonancePulse} // 🚨 追加：衝撃波を雪に伝える
           />
           <MarineSnow 
             variant="far" 
@@ -58,7 +59,8 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
             windSpeed={props.windSpeed || 0} 
             rainAmount={props.rainAmount || 0}
             clouds={props.clouds || 0} 
-            isSuspended={props.isSuspended} // 🚨 追加
+            isSuspended={props.isSuspended}
+            resonancePulse={props.resonancePulse} // 🚨 追加：衝撃波を雪に伝える
           />
           
           <ResonanceHeatmap 
