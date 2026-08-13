@@ -127,6 +127,54 @@ const hudStyles = `
   }
 `
 
+// 🚨 追加：WebGLの描画と同期して、ブラウザのAudio APIで直接「ビッグバン爆発音」を鳴らす関数
+function playBigBangAudio() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const masterGain = ctx.createGain()
+    masterGain.connect(ctx.destination)
+    masterGain.gain.setValueAtTime(1.0, ctx.currentTime)
+    masterGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 4.0) // 長い余韻
+
+    // 1. サブベースドロップ（深海を揺るがす重低音の衝撃波）
+    const osc = ctx.createOscillator()
+    const oscGain = ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(150, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(10, ctx.currentTime + 1.5)
+    oscGain.gain.setValueAtTime(1.0, ctx.currentTime)
+    oscGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 3.0)
+    osc.connect(oscGain).connect(masterGain)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 3.0)
+
+    // 2. 高周波の散乱ノイズ（ガラスが四散し、波紋が広がるようなシャーッという音）
+    const bufferSize = ctx.sampleRate * 2.0;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1; // ホワイトノイズ
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'highpass';
+    noiseFilter.frequency.setValueAtTime(1500, ctx.currentTime);
+    noiseFilter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 1.5);
+    
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.8, ctx.currentTime);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.5);
+    
+    noise.connect(noiseFilter).connect(noiseGain).connect(masterGain);
+    noise.start(ctx.currentTime);
+
+  } catch (e) {
+    console.warn("Audio API failed", e)
+  }
+}
+
 function EdgeResonanceOverlay({ ripples }: { ripples: { id: number, pan: number }[] }) {
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 40, overflow: 'hidden' }}>
@@ -433,10 +481,12 @@ export function FathomApp() {
     chargeTimeRequired: 3000,
     onReleaseSuccess: () => {
       setProgress(prev => Math.max(0, prev - 0.08)) 
-      incrementRelease()
       audio.triggerOverloadSonar()
       setResonancePulse(Date.now())
       if (sendResonance) sendResonance(1.0)
+      
+      // 🚨 自作のビッグバン爆発音を鳴らす
+      playBigBangAudio()
     }
   })
 
@@ -450,7 +500,7 @@ export function FathomApp() {
     turbidity   
   })
   
-  const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
+  const { diveTimeMs, releaseCount } = useFathomMemory(audio.running && settled)
 
   const driftElapsedRef = useRef(0)
 
@@ -723,13 +773,7 @@ export function FathomApp() {
               <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>
               
-              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ MEMORY ]</div>
-              <div style={{ marginBottom: 4 }}>Age: {Math.floor(diveTimeMs / 60000)} fth</div>
-              
-              {/* 🚨 Releases から Catharsis (浄化) へ変更 */}
-              <div style={{ marginBottom: 4, color: releaseCount > 0 ? '#44ccff' : 'inherit' }}>
-                Catharsis: {releaseCount}
-              </div>
+              {/* 🚨 数字のプレッシャー(MEMORY/Age/Catharsis)を完全に削除し、静寂を保つ */}
             </div>
 
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
@@ -816,7 +860,6 @@ export function FathomApp() {
 
             <div className={`hud-bottom-right ${visibilityClass(settled, 4)}`}>
               
-              {/* 🚨 テキストを purge pressure に変更 */}
               <div style={{ opacity: 0.3, fontSize: '9px', letterSpacing: '0.2em', marginBottom: 12, fontFamily: 'monospace' }}>
                 hold crystal to purge pressure
               </div>

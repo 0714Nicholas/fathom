@@ -43,13 +43,14 @@ const karmaVertexShader = `
     float turbulence = (noise(p * 15.0 + uTime * 40.0) - 0.5) * 0.5 * uCharge;
     float shockwave = sin(length(p) * 20.0 - uTime * 20.0) * 0.15 * pow(uFlash, 1.5);
     
-    // 🚨 有機的なうねり：解放の瞬間、フレアやアメーバのようにコアが激しく形を崩す
-    float organicBlast = noise(p * 5.0 - uTime * 15.0) * 0.6 * uFlash;
-    
     float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     float condense = -0.2 * uCharge;
     
-    morphedPos += normal * (pulse + turbulence + shockwave + organicBlast + condense);
+    // 🚨 ビッグバン：解放の瞬間、頂点がランダムな方向にトゲのようにバラバラに吹き飛ぶ
+    float explosionForce = pow(uFlash, 3.0) * 3.5; 
+    float fragment = (noise(p * 40.0) - 0.3) * explosionForce; 
+    
+    morphedPos += normal * (pulse + turbulence + shockwave + condense) + (normal * fragment);
 
     vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
     vec4 mvPosition = viewMatrix * worldPosition;
@@ -212,7 +213,8 @@ export function CrystalCoral({
       
       const pressureDistortion = THREE.MathUtils.lerp(0.6, 0.1, progress)
       const chargeDistortion = THREE.MathUtils.lerp(pressureDistortion, 0.5, chargeLevel.current)
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 0.0, flashEnergy.current)
+      // 🚨 解放の瞬間、外側のガラスも一瞬バラバラに砕け散るようにディストーションをMAXに
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 5.0, Math.pow(flashEnergy.current, 2.0))
     }
 
     if (groupRef.current) {
@@ -231,23 +233,24 @@ export function CrystalCoral({
       
       const chargeShrink = chargeLevel.current * -0.25 * responsiveScale
       
-      // 🚨 球体のままではなく、X, Y, Z が異なるリズムで膨張し、生々しくグニャリとうねる
-      const flashBase = flashEnergy.current * 0.8 * responsiveScale
-      const organicExpandX = flashBase * (1.0 + Math.sin(time * 30.0) * 0.3)
-      const organicExpandY = flashBase * (1.0 + Math.cos(time * 35.0) * 0.3)
-      const organicExpandZ = flashBase * (1.0 + Math.sin(time * 40.0) * 0.3)
+      // 🚨 ビッグバンの膨張と四散
+      const flashBase = flashEnergy.current * 1.5 * responsiveScale
+      const organicExpandX = flashBase * (1.0 + Math.sin(time * 30.0) * 0.5)
+      const organicExpandY = flashBase * (1.0 + Math.cos(time * 35.0) * 0.5)
+      const organicExpandZ = flashBase * (1.0 + Math.sin(time * 40.0) * 0.5)
       
       const aftershock = flashEnergy.current * Math.sin(time * 40.0) * 0.02 * responsiveScale
       const vibrate = isCharging ? Math.sin(time * 80) * 0.015 * responsiveScale : 0
       const tuneExpand = isTuning ? Math.sin(time * 15) * 0.02 * responsiveScale : 0
 
+      // 弾け飛ぶ速度を上げるため lerp の係数を大きくする
       groupRef.current.scale.lerp(
         new THREE.Vector3(
           baseScale * wobbleX + chargeShrink + organicExpandX + vibrate + tuneExpand + aftershock, 
           baseScale * wobbleY + chargeShrink + organicExpandY + vibrate + tuneExpand + aftershock, 
           baseScale * wobbleZ + chargeShrink + organicExpandZ + vibrate + tuneExpand + aftershock
         ), 
-        delta * 8 
+        delta * 12 
       )
     }
   })
