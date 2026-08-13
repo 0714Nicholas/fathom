@@ -127,7 +127,7 @@ const hudStyles = `
   }
 `
 
-// 🚨 プレミアムオーディオ設計：3.5秒の重厚な余韻と、水中をシミュレートしたローパスフィルター
+// 🚨 圧倒的なアリーナ・リバーブ（ONE OK ROCKのリファレンス）を再現
 function playBigBangAudio() {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -137,22 +137,20 @@ function playBigBangAudio() {
     masterGain.gain.setValueAtTime(1.0, now);
     masterGain.connect(ctx.destination);
 
-    // 1. 深海を揺るがす重低音（サブベースの衝撃波）
+    // 1. サブベース（爆発の衝撃）
     const osc = ctx.createOscillator();
     const oscGain = ctx.createGain();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(120, now);
-    osc.frequency.exponentialRampToValueAtTime(10, now + 3.0); // 3秒かけて低く沈み込む
-    
+    osc.frequency.exponentialRampToValueAtTime(15, now + 1.5);
     oscGain.gain.setValueAtTime(1.0, now);
-    oscGain.gain.setTargetAtTime(0.0001, now + 3.5, 0.5); // 滑らかで重い3.5秒のフェードアウト
-    
+    oscGain.gain.setTargetAtTime(0.0001, now + 1.5, 0.4);
     osc.connect(oscGain).connect(masterGain);
     osc.start(now);
-    osc.stop(now + 4.0);
+    osc.stop(now + 2.0);
 
-    // 2. 高周波のホワイトノイズ（圧力が四散する音）
-    const bufferSize = ctx.sampleRate * 4.0;
+    // 2. ホワイトノイズ（波紋の拡散）
+    const bufferSize = ctx.sampleRate * 2.0;
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
@@ -161,19 +159,46 @@ function playBigBangAudio() {
     const noise = ctx.createBufferSource();
     noise.buffer = buffer;
     
-    // 🚨 分厚い水に吸収される音響効果（ローパスフィルターのスイープ）
-    const lpFilter = ctx.createBiquadFilter();
-    lpFilter.type = 'lowpass';
-    lpFilter.Q.value = 1.0;
-    lpFilter.frequency.setValueAtTime(3000, now);
-    lpFilter.frequency.exponentialRampToValueAtTime(50, now + 3.0); 
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.setValueAtTime(1500, now);
+    noiseFilter.frequency.linearRampToValueAtTime(100, now + 2.0);
     
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.6, now);
-    noiseGain.gain.setTargetAtTime(0.0001, now + 3.5, 0.6); // 長く美しい余韻
+    noiseGain.gain.setValueAtTime(0.8, now);
+    noiseGain.gain.setTargetAtTime(0.0001, now + 2.0, 0.4);
+
+    // 🚨 巨大空間リバーブ（Feedback Delay Network）
+    // 音が壁に跳ね返りながら、約10秒間かけて消えていくライブ会場の残響をシミュレート
+    const delay = ctx.createDelay();
+    delay.delayTime.value = 0.45; // 450msの跳ね返り（広大なアリーナ）
     
-    noise.connect(lpFilter).connect(noiseGain).connect(masterGain);
+    const feedback = ctx.createGain();
+    feedback.gain.value = 0.85; // 1.0に近いほど残響が長く続く
+    
+    const dampFilter = ctx.createBiquadFilter();
+    dampFilter.type = 'lowpass';
+    dampFilter.frequency.value = 2500; // 高音が削れていく自然な残響
+
+    // ディレイループの構築
+    delay.connect(feedback);
+    feedback.connect(dampFilter);
+    dampFilter.connect(delay);
+    
+    const reverbGain = ctx.createGain();
+    reverbGain.gain.value = 0.6; // リバーブの音量
+    delay.connect(reverbGain).connect(masterGain);
+    
+    // ノイズを原音とリバーブ回路の両方に送る
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(masterGain); // 原音
+    noiseGain.connect(delay);      // 残響へ
+
     noise.start(now);
+
+    // 10秒かけてマスター全体をフェードアウト
+    masterGain.gain.setTargetAtTime(0.0001, now + 8.0, 2.0);
 
   } catch (e) {
     console.warn("Audio API failed", e);
@@ -486,11 +511,11 @@ export function FathomApp() {
     chargeTimeRequired: 3000,
     onReleaseSuccess: () => {
       setProgress(prev => Math.max(0, prev - 0.08)) 
-      incrementRelease()
+      
       audio.triggerOverloadSonar()
       setResonancePulse(Date.now())
       if (sendResonance) sendResonance(1.0)
-      playBigBangAudio() // 🚨 重厚な爆発音
+      playBigBangAudio()
     }
   })
 
@@ -504,7 +529,7 @@ export function FathomApp() {
     turbidity   
   })
   
-  const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
+  const { diveTimeMs, releaseCount } = useFathomMemory(audio.running && settled)
 
   const driftElapsedRef = useRef(0)
 
@@ -776,6 +801,9 @@ export function FathomApp() {
               <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
               <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>
+              
+              {/* 🚨 【完全消去】MEMORYのカウント(Age/Catharsis/Releases)のコードを跡形もなく消滅させました */}
+
             </div>
 
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>

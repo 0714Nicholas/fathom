@@ -40,18 +40,16 @@ const karmaVertexShader = `
     
     vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
     
-    // 🚨 トゲトゲを廃止し、滑らかな波動に
     float turbulence = (noise(p * 15.0 + uTime * 40.0) - 0.5) * 0.5 * uCharge;
-    float shockwave = sin(length(p) * 20.0 - uTime * 20.0) * 0.15 * pow(uFlash, 1.5);
     
-    // 🚨 爆発時の滑らかな液体のような波紋（シネマティック）
-    float blastPulse = sin(length(p) * 15.0 - uTime * 30.0) * 0.1 * uFlash;
-    float expansion = uFlash * 1.2;
+    // 🚨 復活：有機体のように激しくうねりながら四散するビッグバン表現
+    float organicBlast = noise(p * 3.0 - uTime * 20.0) * 1.5 * uFlash;
+    float shockwave = sin(length(p) * 15.0 - uTime * 25.0) * 0.3 * pow(uFlash, 1.5);
     
     float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     float condense = -0.2 * uCharge;
     
-    morphedPos += normal * (pulse + turbulence + shockwave + condense + expansion + blastPulse);
+    morphedPos += normal * (pulse + turbulence + shockwave + organicBlast + condense);
 
     vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
     vec4 mvPosition = viewMatrix * worldPosition;
@@ -115,13 +113,12 @@ const karmaFragmentShader = `
     vec3 darkFlame = mix(flameBase, flameHot, smoothstep(0.3, 0.7, flameNoise));
     
     vec3 chargeGlow = darkFlame * uCharge * 6.0; 
-    // 🚨 プレミアムな純白・シアンの巨大な発光
-    vec3 pulseGlow = vec3(0.6, 0.9, 1.0) * uFlash * 8.0; 
-    float core = smoothstep(0.8, 0.0, length(vNormal.xy)) * uFlash * 5.0;
+    vec3 pulseGlow = vec3(0.3, 0.9, 1.0) * uFlash * 4.0;
+    float core = smoothstep(0.8, 0.0, length(vNormal.xy)) * uFlash * 3.0;
 
     finalColor += pulseGlow + chargeGlow + vec3(core);
 
-    // 🚨 ACESトーンマッピング（どんなに眩しくても色が破綻・黒バグ化しない）
+    // ACES トーンマッピングで黒バグ（NaN）を完全に防止
     finalColor = (finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14);
 
     gl_FragColor = vec4(finalColor, 1.0);
@@ -213,12 +210,8 @@ export function CrystalCoral({
       const targetDist = THREE.MathUtils.lerp(baseDist, 8.0, chargeLevel.current)
       
       outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 30.0, flashEnergy.current) 
-      
-      // 🚨 解放の瞬間、ガラスの厚みをほぼゼロにし、中の光を完璧に透けさせる
-      outerMatRef.current.thickness = THREE.MathUtils.lerp(2.5, 0.2, flashEnergy.current) 
       outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.015, flashEnergy.current)
       
-      // 🚨 黒バグを防ぐため、歪み(Distortion)の限界を 1.0 に抑える
       const pressureDistortion = THREE.MathUtils.lerp(0.6, 0.1, progress)
       const chargeDistortion = THREE.MathUtils.lerp(pressureDistortion, 0.5, chargeLevel.current)
       outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 1.0, flashEnergy.current)
@@ -237,24 +230,25 @@ export function CrystalCoral({
       
       const pressureShrink = 1.0 - (progress * 0.15)
       const baseScale = pressureShrink * responsiveScale
-      
       const chargeShrink = chargeLevel.current * -0.25 * responsiveScale
       
-      // 🚨 巨大で荘厳な膨張（スーパーノヴァ）
-      const flashExpand = flashEnergy.current * 1.5 * responsiveScale
+      // 🚨 復活：ビッグバンの有機的な四散表現（XYZで異なるリズムでグチャリと爆発）
+      const flashBase = flashEnergy.current * 1.5 * responsiveScale
+      const organicExpandX = flashBase * (1.0 + Math.sin(time * 25.0) * 0.8)
+      const organicExpandY = flashBase * (1.0 + Math.cos(time * 30.0) * 0.8)
+      const organicExpandZ = flashBase * (1.0 + Math.sin(time * 35.0) * 0.8)
       
       const aftershock = flashEnergy.current * Math.sin(time * 40.0) * 0.02 * responsiveScale
       const vibrate = isCharging ? Math.sin(time * 80) * 0.015 * responsiveScale : 0
       const tuneExpand = isTuning ? Math.sin(time * 15) * 0.02 * responsiveScale : 0
 
-      // 🚨 膨張の動きをより重く、威厳のあるものに
       groupRef.current.scale.lerp(
         new THREE.Vector3(
-          baseScale * wobbleX + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
-          baseScale * wobbleY + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
-          baseScale * wobbleZ + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock
+          baseScale * wobbleX + chargeShrink + organicExpandX + vibrate + tuneExpand + aftershock, 
+          baseScale * wobbleY + chargeShrink + organicExpandY + vibrate + tuneExpand + aftershock, 
+          baseScale * wobbleZ + chargeShrink + organicExpandZ + vibrate + tuneExpand + aftershock
         ), 
-        delta * 4 
+        delta * 12 
       )
     }
   })
