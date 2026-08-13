@@ -56,7 +56,9 @@ export function MarineSnow({
 
         float fallSpeed = -0.15 * aRandom.y * (1.0 - uDepth * 0.6);
         float diveSpeed = 5.0 * uDescent * aRandom.y;
-        pos.y += uTime * (fallSpeed + diveSpeed);
+        
+        // 🚨 霜（Blast）の影響中は、雪も凍りついて動きが止まる
+        pos.y += uTime * (fallSpeed + diveSpeed) * (1.0 - uBlast);
 
         float surfaceTurbulence = uWind * 0.08 * (1.0 - uDepth);
         float baseSway = 0.4 * aRandom.z;
@@ -65,10 +67,10 @@ export function MarineSnow({
 
         pos.y = mod(pos.y + 10.0, 20.0) - 10.0;
 
-        // 🚨 シャープな衝撃波
+        // 解放の瞬間、雪が少し外へ押しやられてクリアな視界を作る
         vec3 dirToCenter = normalize(pos);
         float distToCenter = length(pos);
-        float blastOffset = smoothstep(15.0, 0.0, distToCenter) * pow(uBlast, 0.3) * 30.0;
+        float blastOffset = smoothstep(10.0, 0.0, distToCenter) * uBlast * 8.0;
         pos += dirToCenter * blastOffset;
 
         vec4 mvPosition = viewMatrix * modelMatrix * vec4(pos, 1.0);
@@ -86,7 +88,8 @@ export function MarineSnow({
         float energyConservation = 1.0 / (1.0 + blur * 2.0);
         float depthFade = 1.0 - smoothstep(12.0, 20.0, distToCamera);
         
-        float blastFade = 1.0 - smoothstep(0.0, 0.3, uBlast);
+        // 吹き飛んだ粒子は透明になる
+        float blastFade = 1.0 - smoothstep(0.0, 0.2, uBlast);
         vAlpha = energyConservation * depthFade * blastFade;
       }
     `,
@@ -122,7 +125,7 @@ export function MarineSnow({
       blastForce.current = 1.0; 
       prevPulse.current = resonancePulse;
     }
-    // 🚨 雪が7〜8秒かけて、ゆっくりと美しい元の空間に修復されていく
+    // 🚨 7〜8秒の美しい修復時間
     blastForce.current = THREE.MathUtils.lerp(blastForce.current, 0, delta * 0.45);
 
     if (pointsRef.current) {

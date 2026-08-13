@@ -127,7 +127,7 @@ const hudStyles = `
   }
 `
 
-// 🚨 7〜8秒の美しい残響（結晶の飛散と修復の音響）
+// 🚨 絶対零度の「破氷音」と、クリアな残響
 function playBigBangAudio() {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -137,19 +137,31 @@ function playBigBangAudio() {
     masterGain.gain.setValueAtTime(1.0, now);
     masterGain.connect(ctx.destination);
 
-    // 1. サブベース（内側から弾ける重低音）
-    const osc = ctx.createOscillator();
-    const oscGain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(150, now);
-    osc.frequency.exponentialRampToValueAtTime(10, now + 1.5);
-    oscGain.gain.setValueAtTime(1.0, now);
-    oscGain.gain.setTargetAtTime(0.0001, now + 1.0, 0.4);
-    osc.connect(oscGain).connect(masterGain);
-    osc.start(now);
-    osc.stop(now + 2.0);
+    // 1. 氷が割れる瞬間の鋭い高周波（ピキィィン！）
+    const oscHigh = ctx.createOscillator();
+    const oscHighGain = ctx.createGain();
+    oscHigh.type = 'triangle';
+    oscHigh.frequency.setValueAtTime(3000, now);
+    oscHigh.frequency.exponentialRampToValueAtTime(800, now + 0.5);
+    oscHighGain.gain.setValueAtTime(0.5, now);
+    oscHighGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+    oscHigh.connect(oscHighGain).connect(masterGain);
+    oscHigh.start(now);
+    oscHigh.stop(now + 1.0);
 
-    // 2. ガラスがパリン！と細やかに砕け散るシャープなノイズ
+    // 2. 空間に広がる深いサブベース（重圧の解放）
+    const oscLow = ctx.createOscillator();
+    const oscLowGain = ctx.createGain();
+    oscLow.type = 'sine';
+    oscLow.frequency.setValueAtTime(100, now);
+    oscLow.frequency.exponentialRampToValueAtTime(20, now + 2.0);
+    oscLowGain.gain.setValueAtTime(1.0, now);
+    oscLowGain.gain.setTargetAtTime(0.0001, now + 1.0, 0.5);
+    oscLow.connect(oscLowGain).connect(masterGain);
+    oscLow.start(now);
+    oscLow.stop(now + 3.0);
+
+    // 3. 霜が晴れ、クリアな視界が広がる環境音（静かなホワイトノイズの波）
     const bufferSize = ctx.sampleRate * 2.0;
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -160,44 +172,41 @@ function playBigBangAudio() {
     noise.buffer = buffer;
     
     const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = 'highpass';
-    noiseFilter.frequency.setValueAtTime(4000, now); // 高音のシャキッとした音
-    noiseFilter.frequency.exponentialRampToValueAtTime(200, now + 2.0);
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.setValueAtTime(2000, now);
+    noiseFilter.frequency.linearRampToValueAtTime(500, now + 3.0);
     
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.9, now);
-    noiseGain.gain.setTargetAtTime(0.0001, now + 1.5, 0.3); // アタックを鋭く
+    noiseGain.gain.setValueAtTime(0.4, now);
+    noiseGain.gain.setTargetAtTime(0.0001, now + 3.0, 0.8);
 
-    // 🚨 7〜8秒のクリスタル修復リバーブ（結晶が空間で乱反射する音）
+    // 🚨 透明感のある、氷窟のようなロングリバーブ
     const delay = ctx.createDelay();
-    delay.delayTime.value = 0.25; // 250msの速い反射でクリスタル感を出す
+    delay.delayTime.value = 0.3; // 早めの反射で氷の硬さを表現
     
     const feedback = ctx.createGain();
-    feedback.gain.value = 0.82; // 🚨 ここが残響時間。約7~8秒で美しく消える調整
+    feedback.gain.value = 0.8; // 約7〜8秒の残響
     
     const dampFilter = ctx.createBiquadFilter();
-    dampFilter.type = 'bandpass';
-    dampFilter.frequency.value = 2000; 
-    dampFilter.Q.value = 0.5;
+    dampFilter.type = 'highpass'; // 高音を残してクリアな響きに
+    dampFilter.frequency.value = 800; 
 
-    // ディレイループ
     delay.connect(feedback);
     feedback.connect(dampFilter);
     dampFilter.connect(delay);
     
     const reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0.6;
+    reverbGain.gain.value = 0.5;
     delay.connect(reverbGain).connect(masterGain);
     
     noise.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
-    noiseGain.connect(masterGain); // 原音
-    noiseGain.connect(delay);      // 残響へ
+    noiseGain.connect(masterGain); 
+    noiseGain.connect(delay);      
 
     noise.start(now);
 
-    // 🚨 全体の音を8秒かけて完全にフェードアウト（完全な静寂へ）
-    masterGain.gain.setTargetAtTime(0.0001, now + 7.0, 1.5);
+    masterGain.gain.setTargetAtTime(0.0001, now + 8.0, 2.0);
 
   } catch (e) {
     console.warn("Audio API failed", e);
@@ -510,11 +519,12 @@ export function FathomApp() {
     chargeTimeRequired: 3000,
     onReleaseSuccess: () => {
       setProgress(prev => Math.max(0, prev - 0.08)) 
-      incrementRelease()
+      
       audio.triggerOverloadSonar()
       setResonancePulse(Date.now())
       if (sendResonance) sendResonance(1.0)
-      playBigBangAudio()
+      
+      playBigBangAudio() 
     }
   })
 
@@ -528,7 +538,7 @@ export function FathomApp() {
     turbidity   
   })
   
-  const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
+  const { diveTimeMs } = useFathomMemory(audio.running && settled)
 
   const driftElapsedRef = useRef(0)
 
@@ -703,7 +713,7 @@ export function FathomApp() {
           temp={surfaceTemp} 
           isSuspended={!audio.running}
           diveTimeMs={diveTimeMs}     
-          releaseCount={releaseCount} 
+          releaseCount={0} // UIから消したので使用しない
           sessionPhase={sessionPhase} 
           isCharging={isCharging}       
           turbidity={turbidity}         

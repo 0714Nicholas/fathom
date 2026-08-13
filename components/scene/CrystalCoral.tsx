@@ -40,17 +40,13 @@ const karmaVertexShader = `
     
     vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
     
-    // チャージ時のうねり（マグマのような凝縮）
-    float turbulence = (noise(p * 12.0 + uTime * 30.0) - 0.5) * 0.4 * uCharge;
-    float condense = -0.15 * uCharge;
+    // 🚨 激しい動きはすべて削除。霜（冷気）によるわずかな震えのみ。
+    float shiver = (noise(p * 20.0 + uTime * 5.0) - 0.5) * 0.05 * uCharge;
     
-    // 🚨 修正：ダサいトゲトゲ（頂点引き伸ばし）を完全廃止し、細やかな破片の「浮遊感」を表現
-    // 解放時に、細かいノイズに基づいて表面がフワッと外に広がる
-    float shardDisplacement = (noise(p * 40.0 + uTime * 5.0) - 0.2) * 0.6 * uFlash;
-    
+    // 解放時は、内側から静かに光が波打つ
     float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     
-    morphedPos += normal * (pulse + turbulence + condense + shardDisplacement);
+    morphedPos += normal * (pulse + shiver);
 
     vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
     vec4 mvPosition = viewMatrix * worldPosition;
@@ -93,18 +89,6 @@ const karmaFragmentShader = `
   }
 
   void main() {
-    // 🚨 真のカタルシス：ガラスの飛散と修復のシミュレーション
-    // 高周波ノイズで「ひび割れ」のパターンを作る
-    float shatterPattern = noise(vWorldPosition * 35.0 + uTime * 2.0);
-    
-    // uFlash（残響）に合わせて、コアの最大55%が削り取られる（破片化）
-    float discardThreshold = pow(uFlash, 1.5) * 0.55;
-    
-    // 閾値以下のピクセルは「描画しない（透明になる）」ことで、物理的に砕け散ったように見せる
-    if (shatterPattern < discardThreshold) {
-        discard;
-    }
-
     vec3 normal = normalize(vNormal);
     vec3 viewDir = normalize(vViewPosition);
 
@@ -120,26 +104,16 @@ const karmaFragmentShader = `
     vec3 iridescenceColor = palette(interference, a, b, c, d);
     vec3 finalColor = mix(uBaseColor, iridescenceColor, smoothstep(0.0, 1.0, uRelease));
     
-    // チャージ中の赤黒い炎
-    float flameNoise = noise(p * 12.0 - vec3(0.0, uTime * 15.0, 0.0));
-    vec3 flameBase = vec3(0.1, 0.0, 0.02); 
-    vec3 flameHot = vec3(1.0, 0.1, 0.3);     
-    vec3 darkFlame = mix(flameBase, flameHot, smoothstep(0.3, 0.7, flameNoise));
-    vec3 chargeGlow = darkFlame * uCharge * 6.0; 
+    // 🚨 氷結（フロスト）の表現
+    vec3 frostColor = vec3(0.8, 0.9, 1.0) * uCharge * 2.0; 
+    
+    // 🚨 解放（破氷）の瞬間の、澄んだサファイアブルーの発光
+    vec3 pulseGlow = vec3(0.2, 0.7, 1.0) * uFlash * 3.0;
+    float core = smoothstep(0.8, 0.0, length(vNormal.xy)) * uFlash * 2.0;
 
-    // 🚨 破片の断面が超高熱で発光するエフェクト
-    // discardされた境界線のすぐ近くのピクセルだけを白く光らせる
-    float edgeThickness = 0.05 + (uFlash * 0.1);
-    float edgeGlow = smoothstep(discardThreshold + edgeThickness, discardThreshold, shatterPattern);
-    vec3 fractureLight = vec3(0.6, 0.9, 1.0) * edgeGlow * uFlash * 12.0;
+    finalColor += pulseGlow + frostColor + vec3(core);
 
-    // 全体のフラッシュ発光
-    vec3 pulseGlow = vec3(0.2, 0.7, 1.0) * uFlash * 2.5;
-    float core = smoothstep(0.8, 0.0, length(vNormal.xy)) * uFlash * 3.0;
-
-    finalColor += pulseGlow + chargeGlow + vec3(core) + fractureLight;
-
-    // トーンマッピングで黒バグを防止しつつ、発光の美しさを保つ
+    // ACESトーンマッピング
     finalColor = (finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14);
 
     gl_FragColor = vec4(finalColor, 1.0);
@@ -189,9 +163,8 @@ export function CrystalCoral({
       prevPulse.current = resonancePulse
     }
     
-    // 🚨 7〜8秒の美しい修復時間を確保するため、減衰をゆっくりにする
+    // 7〜8秒の美しい修復時間
     flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.45)
-    
     const targetCharge = isCharging ? 1.0 : 0.0
     chargeLevel.current = THREE.MathUtils.lerp(chargeLevel.current, targetCharge, delta * (isCharging ? 1.5 : 4.0))
 
@@ -210,7 +183,8 @@ export function CrystalCoral({
       const currentEnvironmentColor = surfaceColor.clone().lerp(deepColor, progress)
 
       if (isCharging) {
-        uniforms.uBaseColor.value.lerp(new THREE.Color('#110005'), 0.1) 
+        // 氷結：白銀色へ濁っていく
+        uniforms.uBaseColor.value.lerp(new THREE.Color('#aabbcc'), 0.1) 
       } else if (isTuning) {
         const targetHue = 0.5 + (tuningValue / 100) * 0.4
         const tuneColor = new THREE.Color().setHSL(targetHue, 1.0, 0.4)
@@ -222,28 +196,33 @@ export function CrystalCoral({
 
     if (outerMatRef.current) {
       const baseColor = new THREE.Color('#000511')    
-      const chargeColor = new THREE.Color('#330015') 
-      const flashColor = new THREE.Color('#eeffff') // 閃光は透明感のある純白へ
+      const chargeColor = new THREE.Color('#ffffff') // フロスト（霜）の白さ
+      const flashColor = new THREE.Color('#eeffff')   
       
       const currentColor = baseColor.clone().lerp(chargeColor, chargeLevel.current)
       currentColor.lerp(flashColor, flashEnergy.current)
       outerMatRef.current.attenuationColor.copy(currentColor)
       
+      // 🚨 チャージ中は光を遮断し、解放の瞬間「透明度MAX」になる
       const baseDist = 2.0 
-      const targetDist = THREE.MathUtils.lerp(baseDist, 8.0, chargeLevel.current)
-      outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 20.0, flashEnergy.current) 
+      const targetDist = THREE.MathUtils.lerp(baseDist, 0.5, chargeLevel.current)
+      outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 50.0, Math.pow(flashEnergy.current, 0.5)) 
       
-      // 🚨 修正：外側のガラスがバグるのを防ぎつつ、美しく飛散させる
-      // 解放の瞬間、すりガラス（Roughness=0.6）になり、内部の破片の光を柔らかく拡散させる
-      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.6, flashEnergy.current)
-      // 歪み（Distortion）は絶対に1.0を超えさせない。これでギザギザバグは完全に消滅する。
+      // 🚨 チャージ中：表面がザラザラの霜（Roughness=0.8）に覆われる
+      // 🚨 解放の瞬間：霜が吹き飛び、限界までツルツルな透明ガラス（Roughness=0.0）になる
+      const frostRoughness = THREE.MathUtils.lerp(0.06, 0.8, chargeLevel.current)
+      outerMatRef.current.roughness = THREE.MathUtils.lerp(frostRoughness, 0.0, flashEnergy.current)
+      
+      // ガラスの厚みも一瞬薄くなり、透き通る
+      outerMatRef.current.thickness = THREE.MathUtils.lerp(2.5, 0.5, flashEnergy.current) 
+      
+      // 歪みは穏やかに（バグ防止）
       const pressureDistortion = THREE.MathUtils.lerp(0.6, 0.1, progress)
-      const chargeDistortion = THREE.MathUtils.lerp(pressureDistortion, 0.4, chargeLevel.current)
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 0.2, flashEnergy.current) // フラッシュ時は歪みを抑えて白飛びを防ぐ
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(pressureDistortion, 0.0, flashEnergy.current)
     }
 
     if (groupRef.current) {
-      const spinSpeed = isTuning ? 1.5 : (isCharging ? 4.0 : 0.1) 
+      const spinSpeed = isTuning ? 1.5 : 0.1 
       groupRef.current.rotation.y += delta * spinSpeed
       groupRef.current.rotation.z = Math.sin(time * 0.4) * 0.05
 
@@ -256,21 +235,16 @@ export function CrystalCoral({
       const pressureShrink = 1.0 - (progress * 0.15)
       const baseScale = pressureShrink * responsiveScale
       
-      const chargeShrink = chargeLevel.current * -0.25 * responsiveScale
+      // チャージ中は動かさず、静かに凍りつくのを待つ
       
-      // 🚨 解放時の膨張：急激に膨らみ、7秒かけてゆっくりと元のサイズに収縮（修復）していく
-      // flashEnergy の平方根を取ることで「アタックは鋭く、余韻は長く」なる
-      const flashExpand = Math.pow(flashEnergy.current, 0.5) * 0.6 * responsiveScale
-      
-      const aftershock = flashEnergy.current * Math.sin(time * 60.0) * 0.02 * responsiveScale
-      const vibrate = isCharging ? Math.sin(time * 80) * 0.015 * responsiveScale : 0
-      const tuneExpand = isTuning ? Math.sin(time * 15) * 0.02 * responsiveScale : 0
+      // 解放の瞬間、軽く息を吸うように一瞬膨らんでからスッと元に戻る
+      const flashPulse = flashEnergy.current * 0.15 * responsiveScale
 
       groupRef.current.scale.lerp(
         new THREE.Vector3(
-          baseScale * wobbleX + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
-          baseScale * wobbleY + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
-          baseScale * wobbleZ + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock
+          baseScale * wobbleX + flashPulse, 
+          baseScale * wobbleY + flashPulse, 
+          baseScale * wobbleZ + flashPulse
         ), 
         delta * 10 
       )
