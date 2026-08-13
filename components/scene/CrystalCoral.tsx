@@ -42,20 +42,15 @@ const karmaVertexShader = `
     
     float turbulence = (noise(p * 15.0 + uTime * 40.0) - 0.5) * 0.5 * uCharge;
     
-    // 🚨 ガラスがパリン！と鋭く砕け散る表現（細かい破片の飛散）
-    vec3 cell = floor(p * 12.0); // 空間をグリッドに割る
-    float cellHash = hash(cell.x + cell.y * 10.0 + cell.z * 100.0);
-    float shatter = (cellHash - 0.5) * 4.0 * uFlash; // 破片が四方八方へ飛び散る
-    
-    float spike = (noise(p * 40.0) - 0.5) * 2.0 * uFlash; // さらに細かいトゲ（ガラス片）
-    
-    // 🚨 7〜8秒かけて、破片が共鳴（ブルブル震動）しながらゆっくりと元の結晶へ修復されていく
-    float repairTremor = sin(uTime * 50.0 + cellHash * 20.0) * 0.1 * uFlash;
+    // 🚨 修正：バグの原因だった「破片の飛散(shatter/spike)」を完全に削除
+    // 代わりに、美しく滑らかに波打つ波動（シネマティックウェーブ）へ変更
+    float blastPulse = sin(length(p) * 15.0 - uTime * 30.0) * 0.1 * uFlash;
+    float expansion = uFlash * 0.8; // 均等で美しい球体としての膨張
     
     float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     float condense = -0.2 * uCharge;
     
-    morphedPos += normal * (pulse + turbulence + shatter + spike + repairTremor + condense);
+    morphedPos += normal * (pulse + turbulence + blastPulse + expansion + condense);
 
     vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
     vec4 mvPosition = viewMatrix * worldPosition;
@@ -119,10 +114,14 @@ const karmaFragmentShader = `
     vec3 darkFlame = mix(flameBase, flameHot, smoothstep(0.3, 0.7, flameNoise));
     
     vec3 chargeGlow = darkFlame * uCharge * 6.0; 
-    vec3 pulseGlow = vec3(0.3, 0.9, 1.0) * uFlash * 4.0;
-    float core = smoothstep(0.8, 0.0, length(vNormal.xy)) * uFlash * 3.0;
+    
+    // 🚨 プレミアムな純白・シアンの巨大な発光（トゲトゲをなくし、光の膜として広がる）
+    vec3 pulseGlow = vec3(0.6, 0.9, 1.0) * uFlash * 8.0; 
+    float core = smoothstep(0.8, 0.0, length(vNormal.xy)) * uFlash * 5.0;
 
     finalColor += pulseGlow + chargeGlow + vec3(core);
+
+    // ACESトーンマッピング
     finalColor = (finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14);
 
     gl_FragColor = vec4(finalColor, 1.0);
@@ -172,9 +171,7 @@ export function CrystalCoral({
       prevPulse.current = resonancePulse
     }
     
-    // 🚨 修復の時間を極めてゆっくり（約7〜8秒）にするため、減衰を 0.45 に落とす
     flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.45)
-    
     const targetCharge = isCharging ? 1.0 : 0.0
     chargeLevel.current = THREE.MathUtils.lerp(chargeLevel.current, targetCharge, delta * (isCharging ? 1.5 : 4.0))
 
@@ -217,14 +214,14 @@ export function CrystalCoral({
       
       outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 30.0, flashEnergy.current) 
       
-      // 🚨 外側のガラスも割れたように見せるため、解放の瞬間に Roughness(すりガラス) と Distortion(歪み) を急激に上げる
-      // そして7~8秒かけて修復され、滑らかな透明ガラスに戻る
-      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.4, flashEnergy.current)
+      // 🚨 修正：外側のガラスの歪みを完全に抑える（スライム化・破綻の防止）
+      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.015, flashEnergy.current)
       outerMatRef.current.thickness = THREE.MathUtils.lerp(2.5, 0.1, flashEnergy.current) 
       
       const pressureDistortion = THREE.MathUtils.lerp(0.6, 0.1, progress)
       const chargeDistortion = THREE.MathUtils.lerp(pressureDistortion, 0.5, chargeLevel.current)
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 4.0, Math.pow(flashEnergy.current, 1.5))
+      // ディストーションの上限を安全な値（0.8）に固定し、ガラスとしての美しさを保つ
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 0.8, flashEnergy.current)
     }
 
     if (groupRef.current) {
@@ -240,22 +237,24 @@ export function CrystalCoral({
       
       const pressureShrink = 1.0 - (progress * 0.15)
       const baseScale = pressureShrink * responsiveScale
+      
       const chargeShrink = chargeLevel.current * -0.25 * responsiveScale
       
-      // 🚨 シャープな膨張と、修復中の微細な震え
-      const flashExpand = flashEnergy.current * 1.2 * responsiveScale
-      const aftershock = flashEnergy.current * Math.sin(time * 60.0) * 0.05 * responsiveScale
+      // 🚨 修正：不規則なバグ的膨張をなくし、巨大で荘厳な「球体としての膨張」へ
+      const flashExpand = flashEnergy.current * 1.5 * responsiveScale
       
+      const aftershock = flashEnergy.current * Math.sin(time * 60.0) * 0.03 * responsiveScale
       const vibrate = isCharging ? Math.sin(time * 80) * 0.015 * responsiveScale : 0
       const tuneExpand = isTuning ? Math.sin(time * 15) * 0.02 * responsiveScale : 0
 
+      // スケールの急激な破綻を防ぐため lerp を 8.0 に落ち着かせる
       groupRef.current.scale.lerp(
         new THREE.Vector3(
           baseScale * wobbleX + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
           baseScale * wobbleY + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
           baseScale * wobbleZ + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock
         ), 
-        delta * 12 
+        delta * 8 
       )
     }
   })
