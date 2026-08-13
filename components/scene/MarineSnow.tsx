@@ -65,7 +65,7 @@ export function MarineSnow({
 
         pos.y = mod(pos.y + 10.0, 20.0) - 10.0;
 
-        // 🚨 衝撃波で吹き飛ぶ処理（極めて高速）
+        // 🚨 シャープな衝撃波
         vec3 dirToCenter = normalize(pos);
         float distToCenter = length(pos);
         float blastOffset = smoothstep(15.0, 0.0, distToCenter) * pow(uBlast, 0.3) * 30.0;
@@ -86,7 +86,6 @@ export function MarineSnow({
         float energyConservation = 1.0 / (1.0 + blur * 2.0);
         float depthFade = 1.0 - smoothstep(12.0, 20.0, distToCamera);
         
-        // 🚨 吹き飛んだ粒子は瞬時に透明(0.0)になり、数秒間完全に消滅する（ゴム紐現象の防止）
         float blastFade = 1.0 - smoothstep(0.0, 0.3, uBlast);
         vAlpha = energyConservation * depthFade * blastFade;
       }
@@ -123,7 +122,8 @@ export function MarineSnow({
       blastForce.current = 1.0; 
       prevPulse.current = resonancePulse;
     }
-    blastForce.current = THREE.MathUtils.lerp(blastForce.current, 0, delta * 0.8);
+    // 🚨 雪が7〜8秒かけて、ゆっくりと美しい元の空間に修復されていく
+    blastForce.current = THREE.MathUtils.lerp(blastForce.current, 0, delta * 0.45);
 
     if (pointsRef.current) {
       const mat = pointsRef.current.material as THREE.ShaderMaterial

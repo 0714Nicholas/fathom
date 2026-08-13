@@ -42,14 +42,20 @@ const karmaVertexShader = `
     
     float turbulence = (noise(p * 15.0 + uTime * 40.0) - 0.5) * 0.5 * uCharge;
     
-    // 🚨 復活：有機体のように激しくうねりながら四散するビッグバン表現
-    float organicBlast = noise(p * 3.0 - uTime * 20.0) * 1.5 * uFlash;
-    float shockwave = sin(length(p) * 15.0 - uTime * 25.0) * 0.3 * pow(uFlash, 1.5);
+    // 🚨 ガラスがパリン！と鋭く砕け散る表現（細かい破片の飛散）
+    vec3 cell = floor(p * 12.0); // 空間をグリッドに割る
+    float cellHash = hash(cell.x + cell.y * 10.0 + cell.z * 100.0);
+    float shatter = (cellHash - 0.5) * 4.0 * uFlash; // 破片が四方八方へ飛び散る
+    
+    float spike = (noise(p * 40.0) - 0.5) * 2.0 * uFlash; // さらに細かいトゲ（ガラス片）
+    
+    // 🚨 7〜8秒かけて、破片が共鳴（ブルブル震動）しながらゆっくりと元の結晶へ修復されていく
+    float repairTremor = sin(uTime * 50.0 + cellHash * 20.0) * 0.1 * uFlash;
     
     float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     float condense = -0.2 * uCharge;
     
-    morphedPos += normal * (pulse + turbulence + shockwave + organicBlast + condense);
+    morphedPos += normal * (pulse + turbulence + shatter + spike + repairTremor + condense);
 
     vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
     vec4 mvPosition = viewMatrix * worldPosition;
@@ -117,8 +123,6 @@ const karmaFragmentShader = `
     float core = smoothstep(0.8, 0.0, length(vNormal.xy)) * uFlash * 3.0;
 
     finalColor += pulseGlow + chargeGlow + vec3(core);
-
-    // ACES トーンマッピングで黒バグ（NaN）を完全に防止
     finalColor = (finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14);
 
     gl_FragColor = vec4(finalColor, 1.0);
@@ -168,7 +172,9 @@ export function CrystalCoral({
       prevPulse.current = resonancePulse
     }
     
-    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.8)
+    // 🚨 修復の時間を極めてゆっくり（約7〜8秒）にするため、減衰を 0.45 に落とす
+    flashEnergy.current = THREE.MathUtils.lerp(flashEnergy.current, 0, delta * 0.45)
+    
     const targetCharge = isCharging ? 1.0 : 0.0
     chargeLevel.current = THREE.MathUtils.lerp(chargeLevel.current, targetCharge, delta * (isCharging ? 1.5 : 4.0))
 
@@ -210,11 +216,15 @@ export function CrystalCoral({
       const targetDist = THREE.MathUtils.lerp(baseDist, 8.0, chargeLevel.current)
       
       outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 30.0, flashEnergy.current) 
-      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.015, flashEnergy.current)
+      
+      // 🚨 外側のガラスも割れたように見せるため、解放の瞬間に Roughness(すりガラス) と Distortion(歪み) を急激に上げる
+      // そして7~8秒かけて修復され、滑らかな透明ガラスに戻る
+      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.4, flashEnergy.current)
+      outerMatRef.current.thickness = THREE.MathUtils.lerp(2.5, 0.1, flashEnergy.current) 
       
       const pressureDistortion = THREE.MathUtils.lerp(0.6, 0.1, progress)
       const chargeDistortion = THREE.MathUtils.lerp(pressureDistortion, 0.5, chargeLevel.current)
-      outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 1.0, flashEnergy.current)
+      outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 4.0, Math.pow(flashEnergy.current, 1.5))
     }
 
     if (groupRef.current) {
@@ -232,21 +242,18 @@ export function CrystalCoral({
       const baseScale = pressureShrink * responsiveScale
       const chargeShrink = chargeLevel.current * -0.25 * responsiveScale
       
-      // 🚨 復活：ビッグバンの有機的な四散表現（XYZで異なるリズムでグチャリと爆発）
-      const flashBase = flashEnergy.current * 1.5 * responsiveScale
-      const organicExpandX = flashBase * (1.0 + Math.sin(time * 25.0) * 0.8)
-      const organicExpandY = flashBase * (1.0 + Math.cos(time * 30.0) * 0.8)
-      const organicExpandZ = flashBase * (1.0 + Math.sin(time * 35.0) * 0.8)
+      // 🚨 シャープな膨張と、修復中の微細な震え
+      const flashExpand = flashEnergy.current * 1.2 * responsiveScale
+      const aftershock = flashEnergy.current * Math.sin(time * 60.0) * 0.05 * responsiveScale
       
-      const aftershock = flashEnergy.current * Math.sin(time * 40.0) * 0.02 * responsiveScale
       const vibrate = isCharging ? Math.sin(time * 80) * 0.015 * responsiveScale : 0
       const tuneExpand = isTuning ? Math.sin(time * 15) * 0.02 * responsiveScale : 0
 
       groupRef.current.scale.lerp(
         new THREE.Vector3(
-          baseScale * wobbleX + chargeShrink + organicExpandX + vibrate + tuneExpand + aftershock, 
-          baseScale * wobbleY + chargeShrink + organicExpandY + vibrate + tuneExpand + aftershock, 
-          baseScale * wobbleZ + chargeShrink + organicExpandZ + vibrate + tuneExpand + aftershock
+          baseScale * wobbleX + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
+          baseScale * wobbleY + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
+          baseScale * wobbleZ + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock
         ), 
         delta * 12 
       )
