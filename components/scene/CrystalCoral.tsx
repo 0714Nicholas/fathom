@@ -40,15 +40,16 @@ const karmaVertexShader = `
     
     vec3 morphedPos = mix(p, octahedron, smoothstep(0.0, 1.0, uAge));
     
-    // 🚨 チャージ中：内部コアが自壊しそうなほど激しく振動（乱流）する
     float turbulence = (noise(p * 15.0 + uTime * 40.0) - 0.5) * 0.5 * uCharge;
     float shockwave = sin(length(p) * 20.0 - uTime * 20.0) * 0.15 * pow(uFlash, 1.5);
-    float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     
-    // 🚨 凝縮感：チャージ中はコアが小さく引き締まる
+    // 🚨 有機的なうねり：解放の瞬間、フレアやアメーバのようにコアが激しく形を崩す
+    float organicBlast = noise(p * 5.0 - uTime * 15.0) * 0.6 * uFlash;
+    
+    float pulse = sin(uTime * 10.0) * 0.05 * uResonance;
     float condense = -0.2 * uCharge;
     
-    morphedPos += normal * (pulse + turbulence + shockwave + condense);
+    morphedPos += normal * (pulse + turbulence + shockwave + organicBlast + condense);
 
     vec4 worldPosition = modelMatrix * vec4(morphedPos, 1.0);
     vec4 mvPosition = viewMatrix * worldPosition;
@@ -106,7 +107,6 @@ const karmaFragmentShader = `
     vec3 iridescenceColor = palette(interference, a, b, c, d);
     vec3 finalColor = mix(uBaseColor, iridescenceColor, smoothstep(0.0, 1.0, uRelease));
     
-    // 🚨 泥団子化を防止：より鮮烈で高輝度なクリムゾンレッドの焔
     float flameNoise = noise(p * 12.0 - vec3(0.0, uTime * 15.0, 0.0));
     vec3 flameBase = vec3(0.1, 0.0, 0.02); 
     vec3 flameHot = vec3(1.0, 0.1, 0.3);     
@@ -117,9 +117,6 @@ const karmaFragmentShader = `
     float core = smoothstep(0.8, 0.0, length(vNormal.xy)) * uFlash * 3.0;
 
     finalColor += pulseGlow + chargeGlow + vec3(core);
-
-    // 🚨 黒バグ完全防止：ACESトーンマッピング
-    // どんなに光が暴走しても、色を美しく保ったまま安全な値に変換します
     finalColor = (finalColor * (2.51 * finalColor + 0.03)) / (finalColor * (2.43 * finalColor + 0.59) + 0.14);
 
     gl_FragColor = vec4(finalColor, 1.0);
@@ -200,7 +197,7 @@ export function CrystalCoral({
 
     if (outerMatRef.current) {
       const baseColor = new THREE.Color('#000511')    
-      const chargeColor = new THREE.Color('#330015') // 🚨 透明度を上げ、マグマの赤色を透けさせる
+      const chargeColor = new THREE.Color('#330015') 
       const flashColor = new THREE.Color('#aaddff')   
       
       const currentColor = baseColor.clone().lerp(chargeColor, chargeLevel.current)
@@ -208,13 +205,11 @@ export function CrystalCoral({
       outerMatRef.current.attenuationColor.copy(currentColor)
       
       const baseDist = 2.0 
-      // 🚨 チャージ中、ガラスの光透過距離を伸ばすことで、内側の焔がクッキリと見えるようにする
       const targetDist = THREE.MathUtils.lerp(baseDist, 8.0, chargeLevel.current)
       
       outerMatRef.current.attenuationDistance = THREE.MathUtils.lerp(targetDist, 30.0, flashEnergy.current) 
-      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.0, flashEnergy.current)
+      outerMatRef.current.roughness = THREE.MathUtils.lerp(0.06, 0.015, flashEnergy.current)
       
-      // 🚨 黒いシミの根絶：解放（フラッシュ）の瞬間はガラスの「歪み（Distortion）」をゼロにする
       const pressureDistortion = THREE.MathUtils.lerp(0.6, 0.1, progress)
       const chargeDistortion = THREE.MathUtils.lerp(pressureDistortion, 0.5, chargeLevel.current)
       outerMatRef.current.distortion = THREE.MathUtils.lerp(chargeDistortion, 0.0, flashEnergy.current)
@@ -234,11 +229,13 @@ export function CrystalCoral({
       const pressureShrink = 1.0 - (progress * 0.15)
       const baseScale = pressureShrink * responsiveScale
       
-      // 🚨 「溜め」の表現を極限まで強調：圧縮率をさらに高める
       const chargeShrink = chargeLevel.current * -0.25 * responsiveScale
       
-      // 🚨 「解放」の表現：一気に画面を覆うほど巨大に膨張させる
-      const flashExpand = flashEnergy.current * 0.8 * responsiveScale
+      // 🚨 球体のままではなく、X, Y, Z が異なるリズムで膨張し、生々しくグニャリとうねる
+      const flashBase = flashEnergy.current * 0.8 * responsiveScale
+      const organicExpandX = flashBase * (1.0 + Math.sin(time * 30.0) * 0.3)
+      const organicExpandY = flashBase * (1.0 + Math.cos(time * 35.0) * 0.3)
+      const organicExpandZ = flashBase * (1.0 + Math.sin(time * 40.0) * 0.3)
       
       const aftershock = flashEnergy.current * Math.sin(time * 40.0) * 0.02 * responsiveScale
       const vibrate = isCharging ? Math.sin(time * 80) * 0.015 * responsiveScale : 0
@@ -246,9 +243,9 @@ export function CrystalCoral({
 
       groupRef.current.scale.lerp(
         new THREE.Vector3(
-          baseScale * wobbleX + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
-          baseScale * wobbleY + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock, 
-          baseScale * wobbleZ + chargeShrink + flashExpand + vibrate + tuneExpand + aftershock
+          baseScale * wobbleX + chargeShrink + organicExpandX + vibrate + tuneExpand + aftershock, 
+          baseScale * wobbleY + chargeShrink + organicExpandY + vibrate + tuneExpand + aftershock, 
+          baseScale * wobbleZ + chargeShrink + organicExpandZ + vibrate + tuneExpand + aftershock
         ), 
         delta * 8 
       )

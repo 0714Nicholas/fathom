@@ -103,7 +103,6 @@ const hudStyles = `
     text-shadow: 0 0 8px rgba(143, 216, 255, 0.4);
   }
 
-  /* 🚨 通信途絶時のグリッチエフェクト */
   .glitch-text {
     animation: glitch-skew 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) both infinite;
     color: rgba(255, 100, 100, 0.8);
@@ -420,7 +419,6 @@ export function FathomApp() {
   const rainAmount = (data?.rain1h ?? 0) + (data?.rain3h ?? 0)
   const clouds = data?.clouds ?? 42
   
-  // 🚨 水温計算（水面の気温から始まり、海底では約2.0℃まで冷却される）
   const surfaceTemp = data?.temp ?? 15.0
   const waterTemp = useMemo(() => {
     return surfaceTemp - ((surfaceTemp - 2.0) * progress)
@@ -624,7 +622,7 @@ export function FathomApp() {
           identity={identity}
           heatmapPulse={latestHeatmapPulse as any} 
           descent={descent}
-          temp={surfaceTemp} // 🚨 気温を渡す
+          temp={surfaceTemp} 
           isSuspended={!audio.running}
           diveTimeMs={diveTimeMs}     
           releaseCount={releaseCount} 
@@ -698,7 +696,6 @@ export function FathomApp() {
           <>
             <div className={`hud-top-left ${visibilityClass(settled, 1)}`}>
               <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>[ SURFACE ]</div>
-              {/* 🚨 深度が70%を超えると水面の情報が文字化け(通信途絶)する */}
               {progress > 0.7 ? (
                 <div className="glitch-text" style={{ fontSize: '11px', marginTop: 12, letterSpacing: '0.2em' }}>
                   [ SURFACE SIGNAL LOST ]
@@ -718,7 +715,6 @@ export function FathomApp() {
               </div>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
               <div style={{ marginBottom: 4 }}>Pressure: {currentPressure} atm</div>
-              {/* 🚨 追加: 水温表示（潜るほど冷たくなる） */}
               <div style={{ marginBottom: 12, color: progress > 0.8 ? '#aaddff' : 'inherit' }}>
                 Water Temp: {waterTemp.toFixed(1)}°C
               </div>
@@ -729,7 +725,11 @@ export function FathomApp() {
               
               <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ MEMORY ]</div>
               <div style={{ marginBottom: 4 }}>Age: {Math.floor(diveTimeMs / 60000)} fth</div>
-              <div style={{ marginBottom: 4 }}>Releases: {releaseCount}</div>
+              
+              {/* 🚨 Releases から Catharsis (浄化) へ変更 */}
+              <div style={{ marginBottom: 4, color: releaseCount > 0 ? '#44ccff' : 'inherit' }}>
+                Catharsis: {releaseCount}
+              </div>
             </div>
 
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
@@ -815,9 +815,12 @@ export function FathomApp() {
             ) : null}
 
             <div className={`hud-bottom-right ${visibilityClass(settled, 4)}`}>
+              
+              {/* 🚨 テキストを purge pressure に変更 */}
               <div style={{ opacity: 0.3, fontSize: '9px', letterSpacing: '0.2em', marginBottom: 12, fontFamily: 'monospace' }}>
-                hold crystal to release
+                hold crystal to purge pressure
               </div>
+              
               <div style={{ display: 'flex', gap: 24 }}>
                 {!audio.running ? (
                   <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ resume ]</button>
