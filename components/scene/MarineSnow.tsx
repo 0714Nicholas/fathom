@@ -12,7 +12,6 @@ export function MarineSnow({
   const localTime = useRef(0) 
   const timeScale = useRef(1.0) 
   
-  // 🚨 衝撃波の強さを管理する変数
   const prevPulse = useRef(resonancePulse)
   const blastForce = useRef(0)
   
@@ -41,7 +40,7 @@ export function MarineSnow({
       uOpacity: { value: variant === 'near' ? 0.6 : 0.3 },
       uWind: { value: 0 },   
       uDepth: { value: 0 },
-      uBlast: { value: 0 } // 🚨 衝撃波の強さ（0.0 〜 1.0）
+      uBlast: { value: 0 }
     },
     vertexShader: `
       uniform float uTime;
@@ -66,12 +65,11 @@ export function MarineSnow({
 
         pos.y = mod(pos.y + 10.0, 20.0) - 10.0;
 
-        // 🚨 衝撃波（Blast）による浄化：解放の瞬間、雪が放射状に吹き飛ばされる
+        // 🚨 衝撃波で吹き飛ぶ処理（極めて高速）
         vec3 dirToCenter = normalize(pos);
         float distToCenter = length(pos);
-        // 中心に近いほど強く吹き飛ぶ
-        float blastEffect = smoothstep(20.0, 0.0, distToCenter) * uBlast * 18.0;
-        pos += dirToCenter * blastEffect;
+        float blastOffset = smoothstep(15.0, 0.0, distToCenter) * pow(uBlast, 0.3) * 30.0;
+        pos += dirToCenter * blastOffset;
 
         vec4 mvPosition = viewMatrix * modelMatrix * vec4(pos, 1.0);
         
@@ -79,9 +77,7 @@ export function MarineSnow({
         float focusDist = 4.5; 
         float blur = abs(distToCamera - focusDist) * 0.25; 
         
-        // 吹き飛んでいる時は粒子が細かく引き伸ばされる（スピード感）
-        float sizeMod = 1.0 - (uBlast * 0.5);
-        float baseSize = 25.0 * aRandom.z * (1.0 - uDepth * 0.4) * sizeMod;
+        float baseSize = 25.0 * aRandom.z * (1.0 - uDepth * 0.4);
         float pointSize = baseSize + (blur * 30.0);
         
         gl_PointSize = pointSize * (20.0 / distToCamera); 
@@ -90,8 +86,9 @@ export function MarineSnow({
         float energyConservation = 1.0 / (1.0 + blur * 2.0);
         float depthFade = 1.0 - smoothstep(12.0, 20.0, distToCamera);
         
-        // 吹き飛んでいる雪は少し発光して消えていく
-        vAlpha = energyConservation * depthFade + (uBlast * 0.2);
+        // 🚨 吹き飛んだ粒子は瞬時に透明(0.0)になり、数秒間完全に消滅する（ゴム紐現象の防止）
+        float blastFade = 1.0 - smoothstep(0.0, 0.3, uBlast);
+        vAlpha = energyConservation * depthFade * blastFade;
       }
     `,
     fragmentShader: `
@@ -122,12 +119,10 @@ export function MarineSnow({
     timeScale.current = THREE.MathUtils.lerp(timeScale.current, targetScale, delta * 2.0)
     localTime.current += delta * timeScale.current
 
-    // 🚨 衝撃波の発生と減衰
     if (resonancePulse > prevPulse.current) {
-      blastForce.current = 1.0; // 解放の瞬間に衝撃MAX
+      blastForce.current = 1.0; 
       prevPulse.current = resonancePulse;
     }
-    // 雪がゆっくりと元に戻ってくるように、減衰はかなり遅めにする
     blastForce.current = THREE.MathUtils.lerp(blastForce.current, 0, delta * 0.8);
 
     if (pointsRef.current) {
@@ -136,7 +131,6 @@ export function MarineSnow({
       mat.uniforms.uDescent.value = THREE.MathUtils.lerp(mat.uniforms.uDescent.value, descent, 0.1)
       mat.uniforms.uWind.value = THREE.MathUtils.lerp(mat.uniforms.uWind.value, windSpeed, 0.05)
       mat.uniforms.uDepth.value = THREE.MathUtils.lerp(mat.uniforms.uDepth.value, progress, 0.05)
-      // 衝撃波を渡す
       mat.uniforms.uBlast.value = blastForce.current
     }
   })

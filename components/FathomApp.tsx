@@ -127,51 +127,56 @@ const hudStyles = `
   }
 `
 
-// 🚨 追加：WebGLの描画と同期して、ブラウザのAudio APIで直接「ビッグバン爆発音」を鳴らす関数
+// 🚨 プレミアムオーディオ設計：3.5秒の重厚な余韻と、水中をシミュレートしたローパスフィルター
 function playBigBangAudio() {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const masterGain = ctx.createGain()
-    masterGain.connect(ctx.destination)
-    masterGain.gain.setValueAtTime(1.0, ctx.currentTime)
-    masterGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 4.0) // 長い余韻
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const now = ctx.currentTime;
+    
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(1.0, now);
+    masterGain.connect(ctx.destination);
 
-    // 1. サブベースドロップ（深海を揺るがす重低音の衝撃波）
-    const osc = ctx.createOscillator()
-    const oscGain = ctx.createGain()
-    osc.type = 'sine'
-    osc.frequency.setValueAtTime(150, ctx.currentTime)
-    osc.frequency.exponentialRampToValueAtTime(10, ctx.currentTime + 1.5)
-    oscGain.gain.setValueAtTime(1.0, ctx.currentTime)
-    oscGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 3.0)
-    osc.connect(oscGain).connect(masterGain)
-    osc.start(ctx.currentTime)
-    osc.stop(ctx.currentTime + 3.0)
+    // 1. 深海を揺るがす重低音（サブベースの衝撃波）
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, now);
+    osc.frequency.exponentialRampToValueAtTime(10, now + 3.0); // 3秒かけて低く沈み込む
+    
+    oscGain.gain.setValueAtTime(1.0, now);
+    oscGain.gain.setTargetAtTime(0.0001, now + 3.5, 0.5); // 滑らかで重い3.5秒のフェードアウト
+    
+    osc.connect(oscGain).connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 4.0);
 
-    // 2. 高周波の散乱ノイズ（ガラスが四散し、波紋が広がるようなシャーッという音）
-    const bufferSize = ctx.sampleRate * 2.0;
+    // 2. 高周波のホワイトノイズ（圧力が四散する音）
+    const bufferSize = ctx.sampleRate * 4.0;
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1; // ホワイトノイズ
+      data[i] = Math.random() * 2 - 1;
     }
     const noise = ctx.createBufferSource();
     noise.buffer = buffer;
     
-    const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = 'highpass';
-    noiseFilter.frequency.setValueAtTime(1500, ctx.currentTime);
-    noiseFilter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 1.5);
+    // 🚨 分厚い水に吸収される音響効果（ローパスフィルターのスイープ）
+    const lpFilter = ctx.createBiquadFilter();
+    lpFilter.type = 'lowpass';
+    lpFilter.Q.value = 1.0;
+    lpFilter.frequency.setValueAtTime(3000, now);
+    lpFilter.frequency.exponentialRampToValueAtTime(50, now + 3.0); 
     
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.8, ctx.currentTime);
-    noiseGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.5);
+    noiseGain.gain.setValueAtTime(0.6, now);
+    noiseGain.gain.setTargetAtTime(0.0001, now + 3.5, 0.6); // 長く美しい余韻
     
-    noise.connect(noiseFilter).connect(noiseGain).connect(masterGain);
-    noise.start(ctx.currentTime);
+    noise.connect(lpFilter).connect(noiseGain).connect(masterGain);
+    noise.start(now);
 
   } catch (e) {
-    console.warn("Audio API failed", e)
+    console.warn("Audio API failed", e);
   }
 }
 
@@ -481,12 +486,11 @@ export function FathomApp() {
     chargeTimeRequired: 3000,
     onReleaseSuccess: () => {
       setProgress(prev => Math.max(0, prev - 0.08)) 
+      incrementRelease()
       audio.triggerOverloadSonar()
       setResonancePulse(Date.now())
       if (sendResonance) sendResonance(1.0)
-      
-      // 🚨 自作のビッグバン爆発音を鳴らす
-      playBigBangAudio()
+      playBigBangAudio() // 🚨 重厚な爆発音
     }
   })
 
@@ -500,7 +504,7 @@ export function FathomApp() {
     turbidity   
   })
   
-  const { diveTimeMs, releaseCount } = useFathomMemory(audio.running && settled)
+  const { diveTimeMs, releaseCount, incrementRelease } = useFathomMemory(audio.running && settled)
 
   const driftElapsedRef = useRef(0)
 
@@ -772,8 +776,6 @@ export function FathomApp() {
               <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
               <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
               <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>
-              
-              {/* 🚨 数字のプレッシャー(MEMORY/Age/Catharsis)を完全に削除し、静寂を保つ */}
             </div>
 
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
@@ -859,11 +861,9 @@ export function FathomApp() {
             ) : null}
 
             <div className={`hud-bottom-right ${visibilityClass(settled, 4)}`}>
-              
               <div style={{ opacity: 0.3, fontSize: '9px', letterSpacing: '0.2em', marginBottom: 12, fontFamily: 'monospace' }}>
                 hold crystal to purge pressure
               </div>
-              
               <div style={{ display: 'flex', gap: 24 }}>
                 {!audio.running ? (
                   <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ resume ]</button>
