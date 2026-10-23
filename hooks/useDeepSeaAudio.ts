@@ -1,8 +1,44 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 
 export const DEFAULT_MASTER_VOLUME = 0.8
+
+const LIMITER_TRIM = 0.82
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
+
+export type WeatherInput = {
+  windSpeed: number   // m/s
+  rainAmount: number  // mm/h
+  snowAmount: number  // mm/h
+  clouds: number      // 0..100 %
+  temp: number        // °C
+}
+
+// 天気を 0..1 の「音のつまみ」に変換する
+export function weatherToSound(w: WeatherInput) {
+  return {
+    wind: clamp01(w.windSpeed / 18),                                // 18 m/s（暴風）で最大
+    rain: clamp01(Math.log1p(w.rainAmount) / Math.log1p(10)),       // 10 mm/h（本降り）で最大
+    snow: clamp01(Math.log1p(w.snowAmount * 4) / Math.log1p(8)),    // 2 mm/h で最大
+    overcast: clamp01(w.clouds / 100),
+    cold: clamp01((20 - w.temp) / 40),                              // 20°C 以上で 0、-20°C で 1
+  }
+}
+
+type SoundKnobs = ReturnType<typeof weatherToSound>
+
+// 雨粒・氷の粒に使う、短く減衰するノイズ
+function createDropBuffer(ctx: AudioContext, durationSec: number = 0.03) {
+  const length = Math.floor(ctx.sampleRate * durationSec)
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate)
+  const data = buffer.getChannelData(0)
+  for (let i = 0; i < length; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 4)
+  }
+  return buffer
+}
 
 function hashCode(str: string) {
   let hash = 0
@@ -46,15 +82,28 @@ function createPinkNoiseBuffer(ctx: AudioContext, duration: number = 5.0) {
   return buffer
 }
 
-export function useDeepSeaAudio(opts: { 
-  enabled: boolean, 
-  progress: number, 
-  windSpeed: number, 
-  rainAmount: number, 
+export function useDeepSeaAudio(opts: {
+  enabled: boolean,
+  progress: number,
+  windSpeed: number,
+  rainAmount: number,
+  snowAmount?: number,
+  clouds?: number,
+  temp?: number,
   descent: number,
   isCharging?: boolean,
-  turbidity?: number 
+  turbidity?: number
 }) {
+  const knobs = useMemo(() => weatherToSound({
+    windSpeed: opts.windSpeed,
+    rainAmount: opts.rainAmount,
+    snowAmount: opts.snowAmount ?? 0,
+    clouds: opts.clouds ?? 40,
+    temp: opts.temp ?? 15,
+  }), [opts.windSpeed, opts.rainAmount, opts.snowAmount, opts.clouds, opts.temp])
+  const knobsRef = useRef<SoundKnobs>(knobs)
+  knobsRef.current = knobs
+
   const ctxRef = useRef<AudioContext | null>(null)
   const [running, setRunning] = useState(false)
   
@@ -70,6 +119,17 @@ export function useDeepSeaAudio(opts: {
 
   const subDroneGainRef = useRef<GainNode | null>(null)
 
+  // 海面の天気レイヤー（深く潜るほど遠く、こもっていく）
+  const weatherBusRef = useRef<GainNode | null>(null)
+  const weatherFilterRef = useRef<BiquadFilterNode | null>(null)
+  const weatherDepthGainRef = useRef<GainNode | null>(null)
+  const windGainRef = useRef<GainNode | null>(null)
+  const windFilterRef = useRef<BiquadFilterNode | null>(null)
+  const rainHissGainRef = useRef<GainNode | null>(null)
+  const toneOscsRef = useRef<OscillatorNode[]>([])
+  const toneShimmerGainRef = useRef<GainNode | null>(null)
+  const dropBufferRef = useRef<AudioBuffer | null>(null)
+
   const initAudio = useCallback(() => {
     if (ctxRef.current) return
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
@@ -78,9 +138,22 @@ export function useDeepSeaAudio(opts: {
     const ctx = new AudioContextClass()
     ctxRef.current = ctx
 
+    // 🚨 スピーカー直前のリミッター。解放の瞬間に音が重なっても 1.0 を超えて割れないようにする
+    const limiter = ctx.createDynamicsCompressor()
+    limiter.threshold.value = -3
+    limiter.knee.value = 3
+    limiter.ratio.value = 20
+    limiter.attack.value = 0.002
+    limiter.release.value = 0.2
+    // コンプレッサーの自動メイクアップゲイン分を戻して、普段の音量感を変えない
+    const limiterTrim = ctx.createGain()
+    limiterTrim.gain.value = LIMITER_TRIM
+    limiter.connect(limiterTrim)
+    limiterTrim.connect(ctx.destination)
+
     const master = ctx.createGain()
     master.gain.value = volumeRef.current
-    master.connect(ctx.destination)
+    master.connect(limiter)
     masterGainRef.current = master
 
     const reverb = ctx.createConvolver()
@@ -151,6 +224,91 @@ export function useDeepSeaAudio(opts: {
     subGain.connect(master)
     subOsc.start()
 
+    // --- Surface Weather ---
+    // 天気の音はすべて weatherBus に集め、雲の量と深度でこもらせてから master へ
+    const weatherBus = ctx.createGain()
+    weatherBus.gain.value = 1.0
+    const weatherFilter = ctx.createBiquadFilter()
+    weatherFilter.type = 'lowpass'
+    weatherFilter.frequency.value = 4000
+    weatherFilter.Q.value = 0.5
+    const weatherDepthGain = ctx.createGain()
+    weatherDepthGain.gain.value = 1.0
+    const weatherReverbSend = ctx.createGain()
+    weatherReverbSend.gain.value = 0.25
+    weatherBus.connect(weatherFilter)
+    weatherFilter.connect(weatherDepthGain)
+    weatherDepthGain.connect(master)
+    weatherDepthGain.connect(weatherReverbSend)
+    weatherReverbSend.connect(reverb)
+    weatherBusRef.current = weatherBus
+    weatherFilterRef.current = weatherFilter
+    weatherDepthGainRef.current = weatherDepthGain
+
+    // 風：帯域を絞ったノイズ。強さで音量と帯域が上がり、突風で揺れる
+    const windSrc = ctx.createBufferSource()
+    windSrc.buffer = noiseBuffer
+    windSrc.loop = true
+    const windFilter = ctx.createBiquadFilter()
+    windFilter.type = 'bandpass'
+    windFilter.frequency.value = 400
+    windFilter.Q.value = 0.6
+    const windGain = ctx.createGain()
+    windGain.gain.value = 0.0
+    windSrc.connect(windFilter)
+    windFilter.connect(windGain)
+    windGain.connect(weatherBus)
+    windSrc.start(0, 1.3) // 海鳴りと同じバッファなので、再生位置をずらして重なりを避ける
+    windGainRef.current = windGain
+    windFilterRef.current = windFilter
+
+    // 雨：粒は別ループで鳴らし、ここでは本降りのサーッという音だけ
+    const hissSrc = ctx.createBufferSource()
+    hissSrc.buffer = noiseBuffer
+    hissSrc.loop = true
+    const hissFilter = ctx.createBiquadFilter()
+    hissFilter.type = 'highpass'
+    hissFilter.frequency.value = 1800
+    const hissGain = ctx.createGain()
+    hissGain.gain.value = 0.0
+    hissSrc.connect(hissFilter)
+    hissFilter.connect(hissGain)
+    hissGain.connect(weatherBus)
+    hissSrc.start(0, 2.7)
+    rainHissGainRef.current = hissGain
+
+    // 気温：ごく小さな和音。寒いほど高く澄み、暖かいほど低く柔らかい
+    const toneGain = ctx.createGain()
+    toneGain.gain.value = 0.03
+    const toneLFO = ctx.createOscillator()
+    toneLFO.frequency.value = 0.05
+    const toneLFODepth = ctx.createGain()
+    toneLFODepth.gain.value = 0.012
+    toneLFO.connect(toneLFODepth)
+    toneLFODepth.connect(toneGain.gain)
+    toneLFO.start()
+    const toneOscs = [1, 1.5].map((ratio) => {
+      const osc = ctx.createOscillator()
+      osc.type = 'sine'
+      osc.frequency.value = 130 * ratio
+      osc.connect(toneGain)
+      osc.start()
+      return osc
+    })
+    const shimmer = ctx.createOscillator()
+    shimmer.type = 'sine'
+    shimmer.frequency.value = 130 * 4
+    const shimmerGain = ctx.createGain()
+    shimmerGain.gain.value = 0.0
+    shimmer.connect(shimmerGain)
+    shimmerGain.connect(toneGain)
+    shimmer.start()
+    toneGain.connect(weatherBus)
+    toneOscsRef.current = [...toneOscs, shimmer]
+    toneShimmerGainRef.current = shimmerGain
+
+    dropBufferRef.current = createDropBuffer(ctx)
+
     setRunning(true)
   }, [])
 
@@ -184,21 +342,24 @@ export function useDeepSeaAudio(opts: {
     const now = ctx.currentTime
     
     // 濁度（Turbidity）が高い時、フィルターが開いて耳障りな高音ノイズが混ざる
+    // 海面が荒れている（風が強い）ほど、浅いところの海鳴りも明るく大きくなる
     const currentTurbidity = opts.turbidity || 0
-    const targetFreq = currentTurbidity > 0 ? 3000 + (currentTurbidity * 5000) : 100 + (1 - opts.progress) * 800
+    const surfaceRough = knobs.wind * (1 - opts.progress)
+    const targetFreq = currentTurbidity > 0 ? 3000 + (currentTurbidity * 5000) : 100 + (1 - opts.progress) * 800 + surfaceRough * 500
     pinkNoiseFilterRef.current.frequency.setTargetAtTime(targetFreq, now, 1.0)
-    
+
     // 濁っている時は、海鳴りの音量自体も少し暴れさせる
     if (pinkNoiseGainRef.current) {
-      const baseGain = 0.35 + (currentTurbidity * 0.3)
+      const baseGain = 0.35 + (currentTurbidity * 0.3) + surfaceRough * 0.2
       pinkNoiseGainRef.current.gain.setTargetAtTime(baseGain, now, 1.0)
     }
 
     // チャージ中はサブベース（ドローン）が強烈にうなりを上げる
     const baseSub = opts.progress * 0.4
     const chargeSub = opts.isCharging ? 0.8 : 0.0
-    subDroneGainRef.current.gain.setTargetAtTime(baseSub + chargeSub, now, 0.5)
-  }, [opts.progress, opts.isCharging, opts.turbidity])
+    // 手を離したらドローンは素早く引く（解放音と重なって音割れしないように）
+    subDroneGainRef.current.gain.setTargetAtTime(baseSub + chargeSub, now, opts.isCharging ? 0.5 : 0.12)
+  }, [opts.progress, opts.isCharging, opts.turbidity, knobs.wind])
 
   // --- Descent ---
   useEffect(() => {
@@ -213,6 +374,99 @@ export function useDeepSeaAudio(opts: {
       descentGainRef.current.gain.setTargetAtTime(0.0, now, 1.0)
     }
   }, [opts.descent, opts.progress])
+
+  // --- Surface Weather: 定常的なつまみ（天気と深度が変わったときだけ動かす） ---
+  useEffect(() => {
+    const ctx = ctxRef.current
+    if (!running || !ctx || !weatherFilterRef.current || !weatherDepthGainRef.current) return
+    const now = ctx.currentTime
+    const { wind, rain, snow, overcast, cold } = knobs
+    const depth = clamp01(opts.progress)
+
+    // 快晴は開けて明るく、曇天・雪はこもる。深く潜るほどさらにこもる
+    const surfaceCutoff = (9000 - overcast * 6000) * (1 - snow * 0.5)
+    const cutoff = Math.max(220, surfaceCutoff * Math.pow(1 - depth * 0.92, 2))
+    weatherFilterRef.current.frequency.setTargetAtTime(cutoff, now, 1.5)
+    weatherDepthGainRef.current.gain.setTargetAtTime(1 - depth * 0.55, now, 1.5)
+
+    windFilterRef.current?.frequency.setTargetAtTime(260 + wind * 760, now, 2.0)
+    rainHissGainRef.current?.gain.setTargetAtTime(Math.pow(rain, 1.5) * 0.12, now, 2.0)
+
+    // 寒いほど高い音域へ（暖かい 98Hz ≒ G2 ／ 寒い 196Hz ≒ G3）。寒さで高い倍音もうっすら足す
+    const root = 98 * Math.pow(2, cold)
+    const [rootOsc, fifthOsc, shimmerOsc] = toneOscsRef.current
+    rootOsc?.frequency.setTargetAtTime(root, now, 3.0)
+    fifthOsc?.frequency.setTargetAtTime(root * 1.5, now, 3.0)
+    shimmerOsc?.frequency.setTargetAtTime(root * 4, now, 3.0)
+    toneShimmerGainRef.current?.gain.setTargetAtTime(cold * 0.35, now, 3.0)
+  }, [running, knobs, opts.progress])
+
+  // --- Surface Weather: 突風（強い風ほど頻繁に、大きく揺れる） ---
+  useEffect(() => {
+    if (!running || !ctxRef.current || !windGainRef.current) return
+    const ctx = ctxRef.current
+    const windGain = windGainRef.current
+    let timeoutId: number
+
+    const gust = () => {
+      const { wind } = knobsRef.current
+      const base = 0.04 + wind * 0.5
+      // 強い風ほど揺れ幅も大きくする（凪はほぼ一定、嵐は大きくうねる）
+      const swing = 0.3 + wind * 0.9
+      const target = base * (1 - swing / 2 + Math.random() * swing)
+      windGain.gain.setTargetAtTime(target, ctx.currentTime, 0.6 + Math.random() * 1.6)
+      timeoutId = window.setTimeout(gust, (4500 - wind * 3000) * (0.6 + Math.random() * 0.8))
+    }
+    gust()
+
+    return () => clearTimeout(timeoutId)
+  }, [running])
+
+  // --- Surface Weather: 雨粒と氷の粒 ---
+  useEffect(() => {
+    if (!running || !ctxRef.current || !weatherBusRef.current || !dropBufferRef.current) return
+    const ctx = ctxRef.current
+    const bus = weatherBusRef.current
+    const dropBuffer = dropBufferRef.current
+    const TICK_MS = 60
+
+    const spawn = (opts: { freqMin: number, freqMax: number, gain: number, rate: [number, number] }) => {
+      const src = ctx.createBufferSource()
+      src.buffer = dropBuffer
+      src.playbackRate.value = opts.rate[0] + Math.random() * (opts.rate[1] - opts.rate[0])
+      const filter = ctx.createBiquadFilter()
+      filter.type = 'bandpass'
+      filter.frequency.value = opts.freqMin + Math.random() * (opts.freqMax - opts.freqMin)
+      filter.Q.value = 1.2
+      const gain = ctx.createGain()
+      gain.gain.value = opts.gain * (0.4 + Math.random() * 0.6)
+      const panner = ctx.createStereoPanner()
+      panner.pan.value = Math.random() * 2 - 1
+      src.connect(filter).connect(gain).connect(panner).connect(bus)
+      src.start()
+    }
+
+    // 1 tick あたりの期待個数からポアソン的に粒の数を決める
+    const countFor = (perSecond: number) => {
+      const expected = perSecond * (TICK_MS / 1000)
+      return Math.floor(expected) + (Math.random() < expected % 1 ? 1 : 0)
+    }
+
+    const interval = window.setInterval(() => {
+      const { rain, snow } = knobsRef.current
+      const drops = countFor(rain * 40)
+      for (let i = 0; i < drops; i++) {
+        spawn({ freqMin: 1500, freqMax: 5200, gain: 0.03 + rain * 0.03, rate: [0.7, 1.6] })
+      }
+      // 雪の夜は静か。ときどき高く小さな氷の粒が鳴るだけ
+      const flakes = countFor(snow * 0.8)
+      for (let i = 0; i < flakes; i++) {
+        spawn({ freqMin: 5000, freqMax: 8000, gain: 0.025, rate: [1.8, 2.6] })
+      }
+    }, TICK_MS)
+
+    return () => clearInterval(interval)
+  }, [running])
 
   // --- Ecosystem (Whales and Bubbles) ---
   useEffect(() => {
@@ -369,14 +623,103 @@ export function useDeepSeaAudio(opts: {
     osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 2.0)
     
     gain.gain.setValueAtTime(0, ctx.currentTime)
-    gain.gain.linearRampToValueAtTime(1.0, ctx.currentTime + 0.05) // 強烈なアタック
+    gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + 0.05) // 強烈なアタック（破氷音と重なるので控えめに）
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4.0) // 長い余韻
-    
+
     osc.connect(gain).connect(masterGainRef.current)
     gain.connect(reverbRef.current)
-    
+
     osc.start()
     osc.stop(ctx.currentTime + 4.5)
+  }, [])
+
+  // 🚨 絶対零度の「破氷音」と、クリアな残響
+  // 以前は別の AudioContext で鳴らしていたため、音量スライダーもリミッターも効かずに音割れしていた
+  const triggerIceBreak = useCallback(() => {
+    if (!ctxRef.current || !masterGainRef.current) return
+    const ctx = ctxRef.current
+    const now = ctx.currentTime
+
+    const out = ctx.createGain()
+    out.gain.setValueAtTime(1.0, now)
+    out.gain.setTargetAtTime(0.0001, now + 8.0, 2.0)
+    out.connect(masterGainRef.current)
+
+    // 1. 氷が割れる瞬間の鋭い高周波（ピキィィン！）
+    const oscHigh = ctx.createOscillator()
+    const oscHighGain = ctx.createGain()
+    oscHigh.type = 'triangle'
+    oscHigh.frequency.setValueAtTime(3000, now)
+    oscHigh.frequency.exponentialRampToValueAtTime(800, now + 0.5)
+    oscHighGain.gain.setValueAtTime(0, now)
+    oscHighGain.gain.linearRampToValueAtTime(0.18, now + 0.004) // いきなり立ち上げるとプチッと鳴る
+    oscHighGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5)
+    oscHigh.connect(oscHighGain).connect(out)
+    oscHigh.start(now)
+    oscHigh.stop(now + 1.0)
+
+    // 2. 空間に広がる深いサブベース（重圧の解放）
+    const oscLow = ctx.createOscillator()
+    const oscLowGain = ctx.createGain()
+    oscLow.type = 'sine'
+    oscLow.frequency.setValueAtTime(100, now)
+    oscLow.frequency.exponentialRampToValueAtTime(20, now + 2.0)
+    oscLowGain.gain.setValueAtTime(0, now)
+    oscLowGain.gain.linearRampToValueAtTime(0.35, now + 0.01)
+    oscLowGain.gain.setTargetAtTime(0.0001, now + 1.0, 0.5)
+    oscLow.connect(oscLowGain).connect(out)
+    oscLow.start(now)
+    oscLow.stop(now + 3.0)
+
+    // 3. 霜が晴れ、クリアな視界が広がる環境音（静かなホワイトノイズの波）
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * 2.0, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i++) {
+      data[i] = Math.random() * 2 - 1
+    }
+    const noise = ctx.createBufferSource()
+    noise.buffer = buffer
+
+    const noiseFilter = ctx.createBiquadFilter()
+    noiseFilter.type = 'bandpass'
+    noiseFilter.frequency.setValueAtTime(2000, now)
+    noiseFilter.frequency.linearRampToValueAtTime(500, now + 3.0)
+
+    const noiseGain = ctx.createGain()
+    noiseGain.gain.setValueAtTime(0, now)
+    noiseGain.gain.linearRampToValueAtTime(0.2, now + 0.01)
+    noiseGain.gain.setTargetAtTime(0.0001, now + 3.0, 0.8)
+
+    // 透明感のある、氷窟のようなロングリバーブ
+    const delay = ctx.createDelay()
+    delay.delayTime.value = 0.3 // 早めの反射で氷の硬さを表現
+    const feedback = ctx.createGain()
+    feedback.gain.value = 0.8 // 約7〜8秒の残響
+    const dampFilter = ctx.createBiquadFilter()
+    dampFilter.type = 'highpass' // 高音を残してクリアな響きに
+    dampFilter.frequency.value = 800
+    delay.connect(feedback)
+    feedback.connect(dampFilter)
+    dampFilter.connect(delay)
+
+    const echoGain = ctx.createGain()
+    echoGain.gain.value = 0.35
+    delay.connect(echoGain).connect(out)
+
+    noise.connect(noiseFilter)
+    noiseFilter.connect(noiseGain)
+    noiseGain.connect(out)
+    noiseGain.connect(delay)
+    noise.start(now)
+
+    // フィードバックの輪は自然には外れないので、余韻が消えたら切り離す
+    window.setTimeout(() => {
+      delay.disconnect()
+      feedback.disconnect()
+      dampFilter.disconnect()
+      echoGain.disconnect()
+      out.disconnect()
+    }, 20000)
   }, [])
 
   return {
@@ -387,6 +730,7 @@ export function useDeepSeaAudio(opts: {
     setVolume,
     triggerFrictionImpulse,
     triggerSpatialResonance,
-    triggerOverloadSonar // 追加
+    triggerOverloadSonar, // 追加
+    triggerIceBreak
   }
 }

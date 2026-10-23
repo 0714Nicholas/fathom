@@ -208,95 +208,6 @@ const hudStyles = `
   }
 `
 
-// 🚨 絶対零度の「破氷音」と、クリアな残響
-// level は 1.0 が標準音量（音量スライダーに追従させる）
-function playBigBangAudio(level: number) {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const now = ctx.currentTime;
-    // 残響が消えたら閉じる（毎回 AudioContext を作るので放置すると溜まっていく）
-    window.setTimeout(() => { void ctx.close() }, 20000);
-
-    const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(level, now);
-    masterGain.connect(ctx.destination);
-
-    // 1. 氷が割れる瞬間の鋭い高周波（ピキィィン！）
-    const oscHigh = ctx.createOscillator();
-    const oscHighGain = ctx.createGain();
-    oscHigh.type = 'triangle';
-    oscHigh.frequency.setValueAtTime(3000, now);
-    oscHigh.frequency.exponentialRampToValueAtTime(800, now + 0.5);
-    oscHighGain.gain.setValueAtTime(0.5, now);
-    oscHighGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
-    oscHigh.connect(oscHighGain).connect(masterGain);
-    oscHigh.start(now);
-    oscHigh.stop(now + 1.0);
-
-    // 2. 空間に広がる深いサブベース（重圧の解放）
-    const oscLow = ctx.createOscillator();
-    const oscLowGain = ctx.createGain();
-    oscLow.type = 'sine';
-    oscLow.frequency.setValueAtTime(100, now);
-    oscLow.frequency.exponentialRampToValueAtTime(20, now + 2.0);
-    oscLowGain.gain.setValueAtTime(1.0, now);
-    oscLowGain.gain.setTargetAtTime(0.0001, now + 1.0, 0.5);
-    oscLow.connect(oscLowGain).connect(masterGain);
-    oscLow.start(now);
-    oscLow.stop(now + 3.0);
-
-    // 3. 霜が晴れ、クリアな視界が広がる環境音（静かなホワイトノイズの波）
-    const bufferSize = ctx.sampleRate * 2.0;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-    
-    const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.setValueAtTime(2000, now);
-    noiseFilter.frequency.linearRampToValueAtTime(500, now + 3.0);
-    
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.4, now);
-    noiseGain.gain.setTargetAtTime(0.0001, now + 3.0, 0.8);
-
-    // 🚨 透明感のある、氷窟のようなロングリバーブ
-    const delay = ctx.createDelay();
-    delay.delayTime.value = 0.3; // 早めの反射で氷の硬さを表現
-    
-    const feedback = ctx.createGain();
-    feedback.gain.value = 0.8; // 約7〜8秒の残響
-    
-    const dampFilter = ctx.createBiquadFilter();
-    dampFilter.type = 'highpass'; // 高音を残してクリアな響きに
-    dampFilter.frequency.value = 800; 
-
-    delay.connect(feedback);
-    feedback.connect(dampFilter);
-    dampFilter.connect(delay);
-    
-    const reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0.5;
-    delay.connect(reverbGain).connect(masterGain);
-    
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(masterGain); 
-    noiseGain.connect(delay);      
-
-    noise.start(now);
-
-    masterGain.gain.setTargetAtTime(0.0001, now + 8.0, 2.0);
-
-  } catch (e) {
-    console.warn("Audio API failed", e);
-  }
-}
-
 function EdgeResonanceOverlay({ ripples }: { ripples: { id: number, pan: number }[] }) {
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 40, overflow: 'hidden' }}>
@@ -607,6 +518,7 @@ export function FathomApp() {
 
   const windSpeed = data?.windSpeed ?? 4.2
   const rainAmount = (data?.rain1h ?? 0) + (data?.rain3h ?? 0)
+  const snowAmount = data?.snow1h ?? 0
   const clouds = data?.clouds ?? 42
   
   const surfaceTemp = data?.temp ?? 15.0
@@ -628,18 +540,21 @@ export function FathomApp() {
       setResonancePulse(Date.now())
       if (sendResonance) sendResonance(1.0)
 
-      playBigBangAudio(muted ? 0 : volume / DEFAULT_MASTER_VOLUME)
+      audio.triggerIceBreak()
     }
   })
 
   const audio = useDeepSeaAudio({ 
     enabled: true, 
     progress, 
-    windSpeed, 
-    rainAmount, 
+    windSpeed,
+    rainAmount,
+    snowAmount,
+    clouds,
+    temp: surfaceTemp,
     descent,
-    isCharging, 
-    turbidity   
+    isCharging,
+    turbidity
   })
   
   const { diveTimeMs } = useFathomMemory(audio.running && settled, selfId)

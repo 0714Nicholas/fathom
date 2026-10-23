@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
       windDeg: Number(weather.wind?.deg ?? 0),
       rain1h: Number(weather.rain?.['1h'] ?? 0),
       rain3h: Number(weather.rain?.['3h'] ?? 0),
+      snow1h: Number(weather.snow?.['1h'] ?? 0),
       clouds: Number(weather.clouds?.all ?? 0),
       temp: typeof weather.main?.temp === 'number' ? weather.main.temp : null,
       humidity: typeof weather.main?.humidity === 'number' ? weather.main.humidity : null,
