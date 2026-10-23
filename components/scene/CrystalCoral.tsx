@@ -256,7 +256,8 @@ export function CrystalCoral({
       <ambientLight intensity={lightIntensity * 0.3} />
       <directionalLight position={[5, 10, 5]} intensity={lightIntensity * 1.0} color="#ffffff" />
       <pointLight position={[-3, 0, 3]} intensity={0.5} color="#8fd8ff" />
-      <Environment preset="night" />
+      {/* 外部 CDN（raw.githack.com）に依存しないよう、preset="night" と同じ HDR を自前で配信 */}
+      <Environment files="/hdri/dikhololo_night_1k.hdr" />
 
       <Float speed={1.5} rotationIntensity={0.1} floatIntensity={0.1}>
         <Sphere args={[0.42, 64, 64]}> 

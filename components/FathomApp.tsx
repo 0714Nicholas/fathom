@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DeepSeaCanvas } from '@/components/scene/DeepSeaCanvas'
-import { useDeepSeaAudio } from '@/hooks/useDeepSeaAudio'
+import { DEFAULT_MASTER_VOLUME, useDeepSeaAudio } from '@/hooks/useDeepSeaAudio'
 import {
   useRealtimeLetters,
   type ResonancePulsePayload,
@@ -15,12 +15,46 @@ import { useFathomMemory } from '@/hooks/useFathomMemory'
 import { useAbyssalOverload } from '@/hooks/useAbyssalOverload'
 
 import { PORTS } from '@/lib/scene/ports'
+import { SITE_TAGLINE } from '@/lib/site'
 import { useSelfSeed } from '@/hooks/useSelfSeed'
 import { RestoreMemoryModal } from '@/components/auth/RestoreMemoryModal'
 
 const ROOM_ID = process.env.NEXT_PUBLIC_FATHOM_ROOM ?? 'global'
 
 export type FathomMode = 'meditate' | 'focus' | 'sleep'
+
+const WORK_MS = 25 * 60 * 1000
+const BREAK_MS = 5 * 60 * 1000
+const FOCUS_MS = 90 * 60 * 1000
+const SLEEP_MS = 60 * 60 * 1000
+
+const CLOCK_PREF_KEY = 'fathom:show-clock'
+const VOLUME_PREF_KEY = 'fathom:volume'
+
+function remainingSessionMs(mode: FathomMode, elapsedMs: number): number {
+  if (mode === 'meditate') {
+    if (elapsedMs < WORK_MS) return WORK_MS - elapsedMs
+    return Math.max(0, WORK_MS + BREAK_MS - elapsedMs)
+  }
+  const total = mode === 'focus' ? FOCUS_MS : SLEEP_MS
+  return Math.max(0, total - elapsedMs)
+}
+
+function formatClock(ms: number): string {
+  const totalSec = Math.ceil(ms / 1000)
+  const minutes = Math.floor(totalSec / 60)
+  const seconds = totalSec % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+// localStorage はプライベートモード等で例外を投げることがあるので必ず try で包む
+function readPref(key: string): string | null {
+  try { return window.localStorage.getItem(key) } catch { return null }
+}
+
+function writePref(key: string, value: string) {
+  try { window.localStorage.setItem(key, value) } catch { /* noop */ }
+}
 
 const hudStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500&display=swap');
@@ -116,25 +150,75 @@ const hudStyles = `
     100% { transform: skew(0deg); }
   }
 
+  .landing-intro {
+    position: absolute; top: 72px; left: 0; right: 0;
+    padding: 0 24px; text-align: center; pointer-events: none;
+    color: rgba(255, 255, 255, 0.8); font-size: 14px; line-height: 2;
+  }
+  .landing-intro p { margin: 0; }
+  .landing-intro .phrase { display: inline-block; }
+  .landing-intro .landing-intro-sub { font-size: 11px; opacity: 0.6; letter-spacing: 0.08em; }
+
+  .hud-clock {
+    display: block; padding: 0; margin-bottom: 8px;
+    font-size: 13px; letter-spacing: 0.12em; text-transform: none;
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .volume-control {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+    font-family: monospace; font-size: 10px; letter-spacing: 0.2em;
+    color: rgba(255, 255, 255, 0.4);
+  }
+  .volume-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 96px;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.2);
+    outline: none;
+    cursor: pointer;
+  }
+  .volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 2px;
+    height: 14px;
+    background: #8fd8ff;
+    box-shadow: 0 0 8px rgba(143, 216, 255, 0.6);
+  }
+  .volume-slider::-moz-range-thumb {
+    width: 2px;
+    height: 14px;
+    border: none;
+    border-radius: 0;
+    background: #8fd8ff;
+  }
+
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
+    .landing-intro { top: 48px; font-size: 13px; }
     .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
     .hud-bottom-right { bottom: 130px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
+    .hud-btn.hud-clock { padding: 0; font-size: 12px; }
+    .volume-slider { width: 72px; }
   }
 `
 
 // 🚨 絶対零度の「破氷音」と、クリアな残響
-function playBigBangAudio() {
+// level は 1.0 が標準音量（音量スライダーに追従させる）
+function playBigBangAudio(level: number) {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const now = ctx.currentTime;
-    
+    // 残響が消えたら閉じる（毎回 AudioContext を作るので放置すると溜まっていく）
+    window.setTimeout(() => { void ctx.close() }, 20000);
+
     const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(1.0, now);
+    masterGain.gain.setValueAtTime(level, now);
     masterGain.connect(ctx.destination);
 
     // 1. 氷が割れる瞬間の鋭い高周波（ピキィィン！）
@@ -414,8 +498,21 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
 
   return (
     <div aria-hidden={isLeaving} style={containerStyle}>
+      {/* 初めて来た人に「何をする場所か」を一行で伝える */}
+      <div className="landing-intro font-mincho">
+        <p>
+          {SITE_TAGLINE.split('、').map((phrase, i, all) => (
+            <span key={i} className="phrase">{phrase}{i < all.length - 1 ? '、' : ''}</span>
+          ))}
+        </p>
+        <p className="landing-intro-sub">
+          <span className="phrase">集中・瞑想・睡眠のための没入型タイマー</span>
+          <span className="phrase">── 海を選んで、潜るだけ。</span>
+        </p>
+      </div>
+
       <div style={innerStyle}>
-        
+
         <div className={`signal-text ${!isTuning ? 'locked' : ''}`} style={{ marginBottom: 8 }}>
           {isTuning ? `[ SEEKING... ${freqStr} MHz ]` : `[ SIGNAL ACQUIRED: ${currentPort.name} ]`}
         </div>
@@ -431,6 +528,8 @@ function BeaconTuningStage({ onDescend, onOpenRestore, isLeaving, targetCity, is
           onChange={(e) => handleDialChange(parseFloat(e.target.value))}
           onTouchStart={() => setIsDragging(true)}
           className={`beacon-slider ${!isTuning ? 'locked' : ''}`}
+          aria-label="潜る海を選ぶダイヤル"
+          aria-valuetext={currentPort.label}
         />
 
         <ModeSelector current={mode} onSelect={setMode} />
@@ -487,6 +586,11 @@ export function FathomApp() {
 
   const [ripples, setRipples] = useState<{id: number, pan: number}[]>([])
 
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const [showClock, setShowClock] = useState(true)
+  const [volume, setVolumeState] = useState(DEFAULT_MASTER_VOLUME)
+  const [muted, setMuted] = useState(false)
+
   const { seed: selfId, isLoading: isSeedLoading, restoreSeed } = useSelfSeed()
   const [showRestoreModal, setShowRestoreModal] = useState(false)
 
@@ -518,13 +622,13 @@ export function FathomApp() {
   const { isCharging, turbidity, startCharge, stopCharge } = useAbyssalOverload({
     chargeTimeRequired: 3000,
     onReleaseSuccess: () => {
-      setProgress(prev => Math.max(0, prev - 0.08)) 
-      
+      setProgress(prev => Math.max(0, prev - 0.08))
+
       audio.triggerOverloadSonar()
       setResonancePulse(Date.now())
       if (sendResonance) sendResonance(1.0)
-      
-      playBigBangAudio() 
+
+      playBigBangAudio(muted ? 0 : volume / DEFAULT_MASTER_VOLUME)
     }
   })
 
@@ -538,9 +642,34 @@ export function FathomApp() {
     turbidity   
   })
   
-  const { diveTimeMs } = useFathomMemory(audio.running && settled)
+  const { diveTimeMs } = useFathomMemory(audio.running && settled, selfId)
 
   const driftElapsedRef = useRef(0)
+
+  // 表示設定（時計・音量）を復元
+  useEffect(() => {
+    if (readPref(CLOCK_PREF_KEY) === 'hidden') setShowClock(false)
+    const storedVolume = parseFloat(readPref(VOLUME_PREF_KEY) ?? '')
+    if (Number.isFinite(storedVolume)) setVolumeState(Math.max(0, Math.min(1, storedVolume)))
+  }, [])
+
+  const { setVolume } = audio
+  useEffect(() => {
+    setVolume(muted ? 0 : volume)
+  }, [muted, setVolume, volume])
+
+  const handleVolumeChange = useCallback((value: number) => {
+    setVolumeState(value)
+    setMuted(false)
+    writePref(VOLUME_PREF_KEY, String(value))
+  }, [])
+
+  const toggleClock = useCallback(() => {
+    setShowClock(prev => {
+      writePref(CLOCK_PREF_KEY, prev ? 'hidden' : 'shown')
+      return !prev
+    })
+  }, [])
 
   useEffect(() => {
     const nav = navigator as any
@@ -570,10 +699,6 @@ export function FathomApp() {
     if (!settled || !audio.running) return
     let lastTick = Date.now()
     const INITIAL_DEPTH = fathomMode === 'sleep' ? 0.25 : 0.18
-    const WORK_MS = 25 * 60 * 1000 
-    const BREAK_MS = 5 * 60 * 1000 
-    const FOCUS_MS = 90 * 60 * 1000 
-    const SLEEP_MS = 60 * 60 * 1000 
 
     const timer = window.setInterval(() => {
       const now = Date.now()
@@ -607,6 +732,7 @@ export function FathomApp() {
         }
       }
       setProgress(currentDepth)
+      setElapsedMs(driftElapsedRef.current)
       if (sessionPhaseRef.current !== newPhase) {
         sessionPhaseRef.current = newPhase
         setSessionPhase(newPhase)
@@ -620,11 +746,15 @@ export function FathomApp() {
     setResonancePulse((p) => p + 1)
   }, [])
 
+  // audio は毎レンダー新しいオブジェクトになるため、フェーズが変わった瞬間だけ鳴らす
+  const announcedPhaseRef = useRef(sessionPhase)
   useEffect(() => {
+    if (announcedPhaseRef.current === sessionPhase) return
+    announcedPhaseRef.current = sessionPhase
     if (sessionPhase === 'interval') {
       audio.triggerFrictionImpulse({ intensity: 0.6, durationMs: 300, color: 0.1 })
       triggerResonance(0.8)
-    } else if (sessionPhase === 'completed' && fathomMode === 'meditate') {
+    } else if (sessionPhase === 'completed' && fathomMode !== 'sleep') {
       audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 500, color: 0.5 })
       triggerResonance(0.4)
     }
@@ -634,6 +764,7 @@ export function FathomApp() {
     driftElapsedRef.current = 0
     sessionPhaseRef.current = 'diving'
     setSessionPhase('diving')
+    setElapsedMs(0)
     setProgress(0.18)
     audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 150, color: 0.8 })
     triggerResonance(0.3)
@@ -769,10 +900,14 @@ export function FathomApp() {
           </div>
         ) : null}
 
-        {hasDescended && settled && sessionPhase === 'completed' && fathomMode === 'meditate' ? (
+        {hasDescended && settled && sessionPhase === 'completed' && fathomMode !== 'sleep' ? (
           <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', pointerEvents: 'auto' }}>
             <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)', marginBottom: 32 }}>
-              水面に到達しました。<br/>息を整え、次の深淵へ。
+              {fathomMode === 'meditate' ? (
+                <>水面に到達しました。<br/>息を整え、次の深淵へ。</>
+              ) : (
+                <>90分の潜航を終えました。<br/>深海で得た思考を、そっと持ち帰って。</>
+              )}
             </p>
             <button className="hud-btn" onClick={handleDiveAgain} style={{ fontSize: 12, padding: '8px 24px', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 24 }}>
               [ descend again ]
@@ -801,6 +936,16 @@ export function FathomApp() {
               <div style={{ opacity: 0.4, marginBottom: 8, fontSize: '0.9em' }}>
                 {sessionPhase === 'interval' ? '[ DECOMPRESSION ]' : '[ ABYSS ]'}
               </div>
+              <button
+                type="button"
+                className="hud-btn hud-clock"
+                onClick={toggleClock}
+                aria-pressed={showClock}
+              >
+                {showClock
+                  ? `${sessionPhase === 'interval' ? 'Break' : 'Time Left'}: ${formatClock(remainingSessionMs(fathomMode, elapsedMs))}`
+                  : '[ show time ]'}
+              </button>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
               <div style={{ marginBottom: 4 }}>Pressure: {currentPressure} atm</div>
               <div style={{ marginBottom: 12, color: progress > 0.8 ? '#aaddff' : 'inherit' }}>
@@ -897,6 +1042,26 @@ export function FathomApp() {
             <div className={`hud-bottom-right ${visibilityClass(settled, 4)}`}>
               <div style={{ opacity: 0.3, fontSize: '9px', letterSpacing: '0.2em', marginBottom: 12, fontFamily: 'monospace' }}>
                 hold crystal to purge pressure
+              </div>
+              <div className="volume-control">
+                <span aria-hidden="true">vol</span>
+                <input
+                  type="range"
+                  min="0" max="1" step="0.01"
+                  value={muted ? 0 : volume}
+                  onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                  className="volume-slider"
+                  aria-label="音量"
+                />
+                <button
+                  type="button"
+                  className="hud-btn"
+                  style={{ padding: 0 }}
+                  onClick={() => setMuted(prev => !prev)}
+                  aria-pressed={muted}
+                >
+                  {muted ? '[ unmute ]' : '[ mute ]'}
+                </button>
               </div>
               <div style={{ display: 'flex', gap: 24 }}>
                 {!audio.running ? (

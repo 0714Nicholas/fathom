@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 
+export const DEFAULT_MASTER_VOLUME = 0.8
+
 function hashCode(str: string) {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -57,6 +59,7 @@ export function useDeepSeaAudio(opts: {
   const [running, setRunning] = useState(false)
   
   const masterGainRef = useRef<GainNode | null>(null)
+  const volumeRef = useRef(DEFAULT_MASTER_VOLUME)
   const reverbRef = useRef<ConvolverNode | null>(null)
   
   const pinkNoiseGainRef = useRef<GainNode | null>(null)
@@ -76,7 +79,7 @@ export function useDeepSeaAudio(opts: {
     ctxRef.current = ctx
 
     const master = ctx.createGain()
-    master.gain.value = 0.8
+    master.gain.value = volumeRef.current
     master.connect(ctx.destination)
     masterGainRef.current = master
 
@@ -163,6 +166,16 @@ export function useDeepSeaAudio(opts: {
   }, [])
 
   const start = resume
+
+  // 0..1。AudioContext 生成前に呼ばれても次の initAudio で反映される
+  const setVolume = useCallback((value: number) => {
+    const v = Math.max(0, Math.min(1, value))
+    volumeRef.current = v
+    const ctx = ctxRef.current
+    if (ctx && masterGainRef.current) {
+      masterGainRef.current.gain.setTargetAtTime(v, ctx.currentTime, 0.05)
+    }
+  }, [])
 
   // --- Depth, Charging, and Turbidity ---
   useEffect(() => {
@@ -371,6 +384,7 @@ export function useDeepSeaAudio(opts: {
     start,
     resume,
     suspend,
+    setVolume,
     triggerFrictionImpulse,
     triggerSpatialResonance,
     triggerOverloadSonar // 追加
