@@ -49,7 +49,7 @@ export default async function OpengraphImage() {
             <span>深海の景色になる。</span>
           </div>
           <div style={{ marginTop: 28, fontSize: 28, color: 'rgba(235, 245, 252, 0.72)' }}>
-            集中・瞑想・睡眠のための没入型タイマー
+            毎時 :00 と :30、みんなで潜る集中タイマー
           </div>
           <div style={{ marginTop: 40, fontSize: 16, letterSpacing: '0.14em', color: 'rgba(143, 216, 255, 0.7)' }}>
             {`LIVE WEATHER FROM ${PORTS.length} REMOTE SEAS · NO SIGN-UP`}

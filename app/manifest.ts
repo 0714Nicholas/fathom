@@ -4,7 +4,7 @@ import { SITE_DESCRIPTION } from '@/lib/site'
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/',
-    name: 'Fathom — 深海の集中・瞑想・睡眠タイマー',
+    name: 'Fathom — みんなで潜る集中タイマー',
     short_name: 'FATHOM',
     description: SITE_DESCRIPTION,
     lang: 'ja',
