@@ -9,6 +9,7 @@ export type WeatherState = {
   windDeg: number
   rain1h: number
   rain3h: number
+  snow1h?: number
   clouds: number
   temp: number | null
   humidity: number | null

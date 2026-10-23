@@ -3,11 +3,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 // 🚨 修正：あなたのファイルに合わせて getSupabaseClient をインポートします
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { useSelfSeed } from '@/hooks/useSelfSeed'
 
-export function useFathomMemory(isActive: boolean) {
-  const { seed } = useSelfSeed()
-  
+// seed は FathomApp の useSelfSeed から受け取る。
+// ここで useSelfSeed を呼ぶと初回訪問時に別の座標がもう一つ生成され、
+// 画面の座標とは違う seed に潜行時間が記録されてしまう。
+export function useFathomMemory(isActive: boolean, seed: string | null) {
+
   // 🚨 修正：フック内で関数を呼び出し、クライアント（またはnull）を取得します
   const supabase = useMemo(() => getSupabaseClient(), [])
   
