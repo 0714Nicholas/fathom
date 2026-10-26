@@ -46,7 +46,7 @@ export default async function OpengraphImage() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', marginTop: 36, fontSize: 54, lineHeight: 1.45 }}>
             <span>世界の果ての「いま」が、</span>
-            <span>深海の景色になる。</span>
+            <span>深海の音と景色になる。</span>
           </div>
           <div style={{ marginTop: 28, fontSize: 28, color: 'rgba(235, 245, 252, 0.72)' }}>
             毎時 :00 と :30、みんなで潜る集中タイマー

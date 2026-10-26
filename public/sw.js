@@ -78,6 +78,18 @@ async function networkFirstPage(request) {
   }
 }
 
+// 「潜航開始」などの通知を押したら、開いている Fathom のタブを前に出す
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const existing = clients.find((client) => new URL(client.url).origin === self.location.origin)
+      if (existing) return existing.focus()
+      return self.clients.openWindow('/')
+    })
+  )
+})
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
   if (request.method !== 'GET') return

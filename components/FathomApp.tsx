@@ -24,6 +24,11 @@ import {
   type ScheduleState,
 } from '@/lib/schedule/diveSchedule'
 import { useDiveSchedule } from '@/hooks/useDiveSchedule'
+import { useDiveLog } from '@/hooks/useDiveLog'
+import { useDiveStats } from '@/hooks/useDiveStats'
+import { useDiveNotifications, type NotificationState } from '@/hooks/useDiveNotifications'
+import { shareDiveCard, xShareUrl, type DiveCardInfo } from '@/lib/share/diveCard'
+import { TIP_ENABLED, TIP_URL } from '@/lib/legal'
 import { useSelfSeed } from '@/hooks/useSelfSeed'
 import { RestoreMemoryModal } from '@/components/auth/RestoreMemoryModal'
 
@@ -391,11 +396,13 @@ function diveCountLabel(phase: ScheduleState['phase'], others: number): string {
 }
 
 // 定時潜航の入口（ランディングの既定画面）
-function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, onJoin, onSolo, onOpenRestore, isLeaving }: {
+function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, weeklyDivers, notifyToggle, onJoin, onSolo, onOpenRestore, isLeaving }: {
   schedule: ScheduleState
   weather: { windSpeed: number, temp: number } | null
   othersDiving: number
   othersWaiting: number
+  weeklyDivers: number | null
+  notifyToggle: React.ReactNode
   onJoin: () => void
   onSolo: () => void
   onOpenRestore: () => void
@@ -424,6 +431,11 @@ function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, on
           <div className="font-mincho scheduled-count">
             {diveCountLabel(schedule.phase, isDiving ? othersDiving : othersWaiting)}
           </div>
+          {weeklyDivers ? (
+            <div className="font-mincho" style={{ fontSize: 11, letterSpacing: '0.1em', opacity: 0.5 }}>
+              今週 {weeklyDivers}人が潜りました
+            </div>
+          ) : null}
         </div>
 
         <button
@@ -439,6 +451,8 @@ function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, on
         <div className="font-mincho" style={{ marginTop: 24, letterSpacing: '0.12em', fontSize: '11px', opacity: 0.5, textAlign: 'center' }}>
           {isDiving ? '途中から合流して、残りの時間を一緒に潜る' : '水面で待って、時間になったら一緒に潜る'}
         </div>
+
+        <div style={{ marginTop: 16 }}>{notifyToggle}</div>
 
         <button
           type="button"
@@ -595,6 +609,78 @@ function BeaconTuningStage({ onDescend, onOpenRestore, onBack, isLeaving, target
         </button>
       </div>
     </div>
+  )
+}
+
+const MODE_LABELS: Record<FathomMode, string> = {
+  scheduled: '定時潜航',
+  meditate: '瞑想',
+  focus: '集中',
+  sleep: '睡眠',
+}
+
+// 浮上画面の「記録を残す・シェアする・応援する」
+function DiveShareActions({ info }: { info: DiveCardInfo }) {
+  const [status, setStatus] = useState<string | null>(null)
+  const linkStyle: React.CSSProperties = { textTransform: 'none', letterSpacing: '0.1em', fontSize: 11, padding: '4px 0' }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 24 }}>
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <button
+          type="button"
+          className="hud-btn"
+          style={linkStyle}
+          onClick={async () => {
+            const result = await shareDiveCard(info)
+            setStatus(result === 'downloaded' ? '潜航カードを保存しました' : result === 'shared' ? '共有しました' : null)
+          }}
+        >
+          <span className="font-mincho">[ 潜航カードを保存 ]</span>
+        </button>
+        <a className="hud-btn" style={linkStyle} href={xShareUrl(info)} target="_blank" rel="noopener noreferrer">
+          <span className="font-mincho">[ X でシェア ]</span>
+        </a>
+      </div>
+      {status ? <div className="font-mincho" style={{ fontSize: 10, opacity: 0.5 }}>{status}</div> : null}
+      {TIP_ENABLED && TIP_URL ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, marginTop: 6 }}>
+          <a className="hud-btn" style={{ ...linkStyle, color: 'rgba(143, 216, 255, 0.85)' }} href={TIP_URL} target="_blank" rel="noopener noreferrer">
+            <span className="font-mincho">この海の灯りを保つ（¥100〜）</span>
+          </a>
+          <a href="/legal" target="_blank" rel="noopener noreferrer" style={{ fontSize: 9, opacity: 0.35, letterSpacing: '0.05em' }}>
+            特定商取引法に基づく表記
+          </a>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function NotifyToggle({ state, onEnable, onDisable }: {
+  state: NotificationState
+  onEnable: () => void
+  onDisable: () => void
+}) {
+  if (state === 'unsupported') return null
+  if (state === 'blocked') {
+    return (
+      <div className="font-mincho" style={{ fontSize: 10, opacity: 0.4, letterSpacing: '0.08em' }}>
+        通知はブラウザの設定でオフになっています
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      className="hud-btn"
+      onClick={state === 'on' ? onDisable : onEnable}
+      aria-pressed={state === 'on'}
+      style={{ textTransform: 'none', letterSpacing: '0.1em', fontSize: 11, opacity: state === 'on' ? 0.9 : 0.6 }}
+    >
+      <span className="font-mincho">
+        {state === 'on' ? '[ 潜航の通知：オン ]' : '[ 潜航の開始を通知する ]'}
+      </span>
+    </button>
   )
 }
 
@@ -904,6 +990,106 @@ export function FathomApp() {
     if (isScheduledDiving) maxDiversRef.current = Math.max(maxDiversRef.current, diversNow)
   }, [isScheduledDiving, diversNow])
 
+  // 潜航 1 回ごとの記録（検証用の数字と「今週 N人」の元データ）
+  const currentPortName = fathomMode === 'scheduled'
+    ? schedule.port.name
+    : (PORTS.find((p) => p.query === city)?.name ?? null)
+  useDiveLog(hasDescended && settled && sessionPhase === 'diving', {
+    seed: selfId,
+    mode: fathomMode,
+    port: currentPortName,
+    slotStart: fathomMode === 'scheduled' ? schedule.diveStartsAt : null,
+  })
+  const diveStats = useDiveStats(beaconMounted && landingView === 'scheduled')
+
+  // 潜航カード用に、潜り始めた時点の情報を覚えておき、浮上した時点で確定させる
+  const isDivingNow = hasDescended && settled && sessionPhase === 'diving'
+  const diveStartRef = useRef<{ at: number, cardAt: number, portLabel: string, portName: string } | null>(null)
+  const [lastDive, setLastDive] = useState<DiveCardInfo | null>(null)
+  useEffect(() => {
+    if (isDivingNow) {
+      const port = fathomMode === 'scheduled' ? schedule.port : PORTS.find((p) => p.query === city)
+      diveStartRef.current = {
+        at: Date.now(),
+        cardAt: fathomMode === 'scheduled' ? schedule.diveStartsAt : Date.now(),
+        portLabel: port?.label ?? data?.city ?? '',
+        portName: port?.name ?? data?.city ?? 'sea',
+      }
+      return
+    }
+    const start = diveStartRef.current
+    if (!start) return
+    diveStartRef.current = null
+    setLastDive({
+      startedAt: start.cardAt,
+      minutes: Math.max(1, Math.round((Date.now() - start.at) / 60000)),
+      modeLabel: MODE_LABELS[fathomMode],
+      portLabel: start.portLabel,
+      portName: start.portName,
+      weather: data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp } : null,
+      companions: fathomMode === 'scheduled' ? maxDiversRef.current : 1,
+    })
+    // 潜航の開始・終了の瞬間だけ反応させる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDivingNow])
+
+  // Stripe の支払い完了後に ?thanks=1 で戻ってきたら、ひとことお礼を出す
+  const [showThanks, setShowThanks] = useState(false)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (!params.has('thanks')) return
+    setShowThanks(true)
+    window.history.replaceState(null, '', window.location.pathname)
+    const id = window.setTimeout(() => setShowThanks(false), 8000)
+    return () => window.clearTimeout(id)
+  }, [])
+
+  // タブが裏にあるとき用の通知。定時潜航に参加している人にだけ、時刻の節目で出す
+  const notifications = useDiveNotifications()
+  const { notify } = notifications
+  const notifyToggle = (
+    <NotifyToggle state={notifications.state} onEnable={() => void notifications.enable()} onDisable={notifications.disable} />
+  )
+  const joinedScheduled = fathomMode === 'scheduled' && (hasDescended || scheduledWaiting)
+  const prevScheduleRef = useRef(schedule)
+  useEffect(() => {
+    const prev = prevScheduleRef.current
+    prevScheduleRef.current = schedule
+    if (!joinedScheduled) return
+    const where = schedule.port.label
+    if (schedule.phase === 'surfacing' && prev.phase === 'surfacing' && prev.remainingInPhase > 60_000 && schedule.remainingInPhase <= 60_000) {
+      void notify('まもなく潜航（1分前）', `${formatClockTime(schedule.diveStartsAt)} ・ ${where}`)
+    } else if (prev.phase === 'surfacing' && schedule.phase === 'diving') {
+      void notify('潜航開始', `${where} ・ 25分`)
+    } else if (prev.phase === 'diving' && schedule.phase === 'surfacing') {
+      void notify('浮上しました', `5分休憩。次の潜航 ${formatClockTime(schedule.diveStartsAt)}`)
+    }
+  }, [joinedScheduled, notify, schedule])
+
+  // ソロ潜航の区切りも、裏のタブにいる人に知らせる
+  const prevSessionPhaseRef = useRef(sessionPhase)
+  useEffect(() => {
+    const prev = prevSessionPhaseRef.current
+    prevSessionPhaseRef.current = sessionPhase
+    if (fathomMode === 'scheduled' || prev === sessionPhase) return
+    if (sessionPhase === 'completed') void notify('潜航を終えました', '水面に戻って、ひと息ついて。')
+    else if (sessionPhase === 'interval') void notify('浮上しました', '5分休憩。息を整えて。')
+  }, [fathomMode, notify, sessionPhase])
+
+  // タブの名前に残り時間を出す（裏のタブからでも次の潜航が分かるように）
+  const defaultTitleRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (defaultTitleRef.current == null) defaultTitleRef.current = document.title
+    let prefix: string | null = null
+    if (joinedScheduled) {
+      const waiting = scheduledWaiting || sessionPhase === 'interval'
+      prefix = `(${formatClock(schedule.remainingInPhase)}) ${waiting ? '次の潜航' : '潜航中'}`
+    } else if (hasDescended && settled && sessionPhase !== 'completed') {
+      prefix = `(${formatClock(remainingSessionMs(fathomMode, elapsedMs))})`
+    }
+    document.title = prefix ? `${prefix} · Fathom` : defaultTitleRef.current
+  })
+
   const leaveLanding = useCallback(() => {
     setBeaconLeaving(true)
     void audio.resume()
@@ -1012,6 +1198,8 @@ export function FathomApp() {
           weather={data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp } : null}
           othersDiving={presenceByStatus.diving ?? 0}
           othersWaiting={presenceByStatus.waiting ?? 0}
+          weeklyDivers={diveStats.divers7d}
+          notifyToggle={notifyToggle}
           onJoin={handleJoinScheduled}
           onSolo={() => setLandingView('solo')}
           onOpenRestore={() => setShowRestoreModal(true)}
@@ -1062,11 +1250,12 @@ export function FathomApp() {
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 28 }}>
               <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} />
             </div>
+            <div style={{ marginTop: 8 }}>{notifyToggle}</div>
           </div>
         ) : null}
 
         {hasDescended && settled && sessionPhase === 'interval' && fathomMode === 'scheduled' ? (
-          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease' }}>
+          <div style={{ position: 'absolute', top: '42%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease', pointerEvents: 'auto' }}>
             <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(143,216,255,0.85)' }}>
               {lastDiveCount > 1 ? `今回は ${lastDiveCount}人と潜りました。` : '今回は、貸し切りの海でした。'}<br/>水面で息を整えて。
             </p>
@@ -1076,6 +1265,8 @@ export function FathomApp() {
             <div className="font-mincho" style={{ marginTop: 10, fontSize: 12, opacity: 0.6 }}>
               {schedule.port.label}
             </div>
+            {lastDive ? <DiveShareActions info={lastDive} /> : null}
+            <div style={{ marginTop: 12 }}>{notifyToggle}</div>
           </div>
         ) : null}
 
@@ -1100,6 +1291,13 @@ export function FathomApp() {
             <button className="hud-btn" onClick={handleDiveAgain} style={{ fontSize: 12, padding: '8px 24px', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 24 }}>
               [ descend again ]
             </button>
+            {lastDive ? <DiveShareActions info={lastDive} /> : null}
+          </div>
+        ) : null}
+
+        {showThanks ? (
+          <div className="font-mincho" style={{ position: 'absolute', top: 72, left: 0, right: 0, textAlign: 'center', fontSize: 13, letterSpacing: '0.1em', color: 'rgba(143, 216, 255, 0.9)' }}>
+            灯りをありがとう。深海が、少しだけ明るくなりました。
           </div>
         ) : null}
 
@@ -1135,16 +1333,43 @@ export function FathomApp() {
                   : '[ show time ]'}
               </button>
               <div style={{ marginBottom: 4, color: '#8fd8ff' }}>Current Depth: {Math.round(progress * 100)}%</div>
-              <div style={{ marginBottom: 4 }}>Pressure: {currentPressure} atm</div>
-              <div style={{ marginBottom: 12, color: progress > 0.8 ? '#aaddff' : 'inherit' }}>
-                Water Temp: {waterTemp.toFixed(1)}°C
-              </div>
-              
-              <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
-              <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
-              <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>
+              {/* 定時潜航では集中の邪魔にならないよう、計器と座標は出さない */}
+              {fathomMode !== 'scheduled' ? (
+                <>
+                  <div style={{ marginBottom: 4 }}>Pressure: {currentPressure} atm</div>
+                  <div style={{ marginBottom: 12, color: progress > 0.8 ? '#aaddff' : 'inherit' }}>
+                    Water Temp: {waterTemp.toFixed(1)}°C
+                  </div>
+
+                  <div style={{ opacity: 0.4, marginBottom: 4, fontSize: '0.9em' }}>[ COORDINATE ]</div>
+                  <div style={{ marginBottom: 8 }}>{selfId.replace(/-/g, ' ')}</div>
+                  <button className="hud-btn" onClick={() => downloadCrystalMemory(selfId, progress)} style={{ padding: 0, textTransform: 'lowercase', display: 'block', marginBottom: 16 }}>save as memory</button>
+                </>
+              ) : null}
             </div>
 
+            {fathomMode === 'scheduled' ? (
+              <div className={`hud-top-right ${visibilityClass(settled, 3)}`} style={{ textAlign: 'right' }}>
+                <div style={{ fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.15em', opacity: 0.5, marginBottom: 6 }}>
+                  {sessionPhase === 'interval'
+                    ? `[ 次の潜航 ${formatClockTime(schedule.diveStartsAt)} ]`
+                    : `[ ${formatClockTime(schedule.diveStartsAt)} の定時潜航 ]`}
+                </div>
+                <div className="font-mincho" style={{ fontSize: 12, opacity: 0.75, marginBottom: 10 }}>
+                  {schedule.port.label}
+                </div>
+                <div className="font-mincho" style={{ fontSize: 12, color: '#8fd8ff', opacity: 0.85 }}>
+                  {sessionPhase === 'interval'
+                    ? (waitersNow > 1 ? `水面に ${waitersNow}人` : '水面にあなたひとり')
+                    : (diversNow > 1 ? `一緒に潜航中 : ${diversNow}人` : 'いまは貸し切りの海')}
+                </div>
+                {turbidity > 0.8 && (
+                  <div style={{ color: 'rgba(255,100,100,0.8)', fontSize: '10px', marginTop: 8 }} className="animate-pulse">
+                    Turbulence blocking signals...
+                  </div>
+                )}
+              </div>
+            ) : (
             <div className={`hud-top-right ${visibilityClass(settled, 3)}`}>
               <div style={{ display: 'flex', gap: 16, marginBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: 8, width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <button
@@ -1168,17 +1393,9 @@ export function FathomApp() {
                   <div style={{ opacity: 0.5, fontSize: '10px', letterSpacing: '0.1em', fontFamily: 'monospace', marginBottom: 4 }}>
                     listening to anonymous tide...
                   </div>
-                  {fathomMode === 'scheduled' ? (
-                    <div className="font-mincho" style={{ fontSize: '12px', opacity: 0.7, marginTop: 12, color: '#8fd8ff' }}>
-                      {sessionPhase === 'interval'
-                        ? (waitersNow > 1 ? `水面に ${waitersNow}人` : '水面にあなたひとり')
-                        : (diversNow > 1 ? `一緒に潜航中 : ${diversNow}人` : 'いまは貸し切りの海')}
-                    </div>
-                  ) : (
-                    <div className="font-mincho" style={{ fontSize: '11px', opacity: 0.4, marginTop: 12 }}>
-                      Active Divers : {presenceCount ?? 1}
-                    </div>
-                  )}
+                  <div className="font-mincho" style={{ fontSize: '11px', opacity: 0.4, marginTop: 12 }}>
+                    Active Divers : {presenceCount ?? 1}
+                  </div>
                   {turbidity > 0.8 && (
                     <div style={{ color: 'rgba(255,100,100,0.8)', fontSize: '10px', marginTop: 8 }} className="animate-pulse">
                       Turbulence blocking signals...
@@ -1189,7 +1406,7 @@ export function FathomApp() {
                 <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                   <input
                     type="text"
-                    placeholder="enter 3-word coordinate"
+                    placeholder="enter your coordinate"
                     style={{ 
                       background: 'transparent',
                       color: 'rgba(255,255,255,0.8)',
@@ -1226,6 +1443,7 @@ export function FathomApp() {
                 </div>
               )}
             </div>
+            )}
 
             {sessionPhase === 'interval' ? (
               <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>

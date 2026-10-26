@@ -6,6 +6,8 @@ export const DEFAULT_MASTER_VOLUME = 0.8
 
 const LIMITER_TRIM = 0.82
 
+const NOISE_LOOP_SEC = 23
+
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
 export type WeatherInput = {
@@ -162,7 +164,9 @@ export function useDeepSeaAudio(opts: {
     reverbRef.current = reverb
 
     // --- Ambient Pink Noise ---
-    const noiseBuffer = createPinkNoiseBuffer(ctx)
+    // 5 秒ループだと 25 分で約 300 回繰り返され、集中していると「同じ波」に気づいてしまう。
+    // 長めのループにし、各レイヤーは再生位置を大きくずらして使う
+    const noiseBuffer = createPinkNoiseBuffer(ctx, NOISE_LOOP_SEC)
     const noiseSrc = ctx.createBufferSource()
     noiseSrc.buffer = noiseBuffer
     noiseSrc.loop = true
@@ -210,7 +214,7 @@ export function useDeepSeaAudio(opts: {
     descentFilter.connect(descentGain)
     descentGain.connect(master)
     descentGain.connect(reverb) 
-    descentSrc.start()
+    descentSrc.start(0, 11.4)
 
     // --- Sub-bass Drone ---
     const subOsc = ctx.createOscillator()
@@ -258,7 +262,7 @@ export function useDeepSeaAudio(opts: {
     windSrc.connect(windFilter)
     windFilter.connect(windGain)
     windGain.connect(weatherBus)
-    windSrc.start(0, 1.3) // 海鳴りと同じバッファなので、再生位置をずらして重なりを避ける
+    windSrc.start(0, 7.9) // 海鳴りと同じバッファなので、再生位置をずらして重なりを避ける
     windGainRef.current = windGain
     windFilterRef.current = windFilter
 
@@ -274,7 +278,7 @@ export function useDeepSeaAudio(opts: {
     hissSrc.connect(hissFilter)
     hissFilter.connect(hissGain)
     hissGain.connect(weatherBus)
-    hissSrc.start(0, 2.7)
+    hissSrc.start(0, 15.3)
     rainHissGainRef.current = hissGain
 
     // 気温：ごく小さな和音。寒いほど高く澄み、暖かいほど低く柔らかい
