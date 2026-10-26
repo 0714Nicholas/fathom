@@ -808,7 +808,11 @@ export function FathomApp() {
     temp: surfaceTemp,
     descent,
     isCharging,
-    turbidity
+    turbidity,
+    focusMix: fathomMode === 'scheduled',
+    diveFraction: fathomMode === 'scheduled' && hasDescended && sessionPhase === 'diving' && schedule.phase === 'diving'
+      ? schedule.elapsedInPhase / SCHEDULED_DIVE_MS
+      : null,
   })
   
   const { diveTimeMs } = useFathomMemory(audio.running && settled, selfId)
@@ -958,7 +962,8 @@ export function FathomApp() {
   const handleRemoteResonance = useCallback((payload: ResonancePulsePayload) => {
     const peerSeed = (payload as any).senderId || (payload as any).letterId || 'anonymous-tide-seed'
     const peerDepth = (payload as any).depth ?? progress 
-    const volumeDamp = fathomMode === 'meditate' ? 1.0 : 0.5
+    // 定時潜航（集中）では、他の人の共鳴は遠くでかすかに届く程度にする
+    const volumeDamp = fathomMode === 'meditate' ? 1.0 : fathomMode === 'scheduled' ? 0.3 : 0.5
     const damped = Math.max(0.1, Math.min(0.4, payload.energy * 0.6)) * volumeDamp
     const panValue = audio.triggerSpatialResonance(peerSeed, peerDepth, damped)
     triggerResonance(damped)
