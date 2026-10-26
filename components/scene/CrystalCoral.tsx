@@ -2,9 +2,48 @@
 
 import { useRef, useMemo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber' 
-import { Sphere, MeshTransmissionMaterial, Float, Environment, Lightformer } from '@react-three/drei'
+import { Sphere, MeshTransmissionMaterial, Float, Environment } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
+
+// 映り込み用：上ほどわずかに青く明るく、下へなめらかに暗くなる水のドーム
+const waterDomeShader = {
+  vertexShader: `
+    varying vec3 vDir;
+    void main() {
+      vDir = normalize(position);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vDir;
+    void main() {
+      vec3 deep = vec3(0.004, 0.010, 0.022);
+      vec3 shallow = vec3(0.045, 0.12, 0.19);
+      vec3 color = mix(deep, shallow, smoothstep(-0.35, 1.0, vDir.y));
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `,
+}
+
+// 映り込み用：海面から差し込む光。中心が明るく、縁はにじんで消える（輪郭を作らない）
+const surfaceGlowShader = {
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec2 vUv;
+    void main() {
+      vec2 p = vUv - 0.5;
+      float glow = exp(-dot(p, p) * 16.0);
+      gl_FragColor = vec4(vec3(0.55, 0.80, 1.0) * glow * 1.4, glow);
+    }
+  `,
+}
 
 export type CrystalCoralProps = DeepSeaCanvasProps
 
@@ -256,14 +295,18 @@ export function CrystalCoral({
       <ambientLight intensity={lightIntensity * 0.3} />
       <directionalLight position={[5, 10, 5]} intensity={lightIntensity * 1.0} color="#ffffff" />
       <pointLight position={[-3, 0, 3]} intensity={0.5} color="#8fd8ff" />
-      {/* 映り込み用の環境。以前の夜景 HDR は森と地平線が映って深海らしさを壊していたので、
-          頭上の海面から差し込む光と、深海の青い散乱光だけで組み立てる（最初の 1 フレームだけ描くので軽い） */}
-      <Environment resolution={128} frames={1}>
-        <color attach="background" args={['#010409']} />
-        <Lightformer form="circle" color="#9fdcff" intensity={1.1} scale={6} position={[0, 7, 0]} rotation-x={Math.PI / 2} />
-        <Lightformer form="circle" color="#5fa8d6" intensity={0.35} scale={14} position={[0, 7.5, 0]} rotation-x={Math.PI / 2} />
-        <Lightformer form="ring" color="#1b4966" intensity={0.7} scale={12} position={[0, 0, -9]} />
-        <Lightformer form="rect" color="#0b2234" intensity={0.5} scale={[24, 3, 1]} position={[0, -7, 0]} rotation-x={-Math.PI / 2} />
+      {/* 映り込み用の環境。以前の夜景 HDR は森と地平線が映って深海らしさを壊し、
+          その次の円盤の光源は縁がくっきり映ってプラスチックのツヤのようになったので、
+          上ほどわずかに明るい水のグラデーションと、輪郭を持たない海面のにじみだけで作る（最初の 1 フレームだけ描くので軽い） */}
+      <Environment resolution={256} frames={1}>
+        <mesh scale={40}>
+          <sphereGeometry args={[1, 48, 24]} />
+          <shaderMaterial args={[waterDomeShader]} side={THREE.BackSide} depthWrite={false} />
+        </mesh>
+        <mesh position={[0, 9, 0]} rotation-x={Math.PI / 2} scale={18}>
+          <planeGeometry />
+          <shaderMaterial args={[surfaceGlowShader]} side={THREE.DoubleSide} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
+        </mesh>
       </Environment>
 
       <Float speed={1.5} rotationIntensity={0.1} floatIntensity={0.1}>
