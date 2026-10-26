@@ -29,6 +29,7 @@ import { useDiveStats } from '@/hooks/useDiveStats'
 import { useDiveNotifications, type NotificationState } from '@/hooks/useDiveNotifications'
 import { shareDiveCard, xShareUrl, type DiveCardInfo } from '@/lib/share/diveCard'
 import { TIP_ENABLED, TIP_URL } from '@/lib/legal'
+import { releaseThoughts, saveThought, type SunkThought } from '@/lib/thoughts'
 import { useSelfSeed } from '@/hooks/useSelfSeed'
 import { RestoreMemoryModal } from '@/components/auth/RestoreMemoryModal'
 
@@ -187,6 +188,30 @@ const hudStyles = `
   .descend-beacon.in-flow { transform: none; }
   .descend-beacon.in-flow:hover { transform: translateY(-1px); }
   .descend-beacon.in-flow.is-leaving { transform: translateY(8px); }
+
+  .sink-input {
+    width: min(420px, 80vw);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(235, 245, 252, 0.85);
+    font-size: 13px;
+    text-align: center;
+    padding: 6px 4px;
+    outline: none;
+    opacity: 0.45;
+    transition: opacity 0.4s ease, border-color 0.4s ease;
+  }
+  .sink-input:hover, .sink-input:focus { opacity: 1; border-bottom-color: rgba(143, 216, 255, 0.5); }
+  .sink-input::placeholder { color: rgba(255, 255, 255, 0.35); }
+  .sink-hint { font-size: 10px; letter-spacing: 0.08em; opacity: 0.35; margin: 8px 0 4px; text-align: center; }
+
+  .breath-catcher { position: absolute; inset: 0; z-index: 45; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .breath-guide {
+    position: absolute; top: 15%; left: 0; right: 0; text-align: center;
+    font-size: 16px; letter-spacing: 0.3em; color: rgba(143, 216, 255, 0.9);
+    pointer-events: none; transition: opacity 0.6s ease;
+  }
 
   .hud-clock {
     display: block; padding: 0; margin-bottom: 8px;
@@ -656,6 +681,65 @@ function DiveShareActions({ info }: { info: DiveCardInfo }) {
   )
 }
 
+// 潜航中の「沈める」入力欄。普段は目立たず、触れたときだけ浮かび上がる
+function SinkInput({ onSink }: { onSink: (text: string | null) => void }) {
+  const [value, setValue] = useState('')
+  return (
+    <input
+      type="text"
+      className="sink-input font-mincho"
+      value={value}
+      maxLength={120}
+      placeholder="気になったことを一行だけ書いて、沈める"
+      aria-label="沈めたいことを書いて Enter"
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.nativeEvent.isComposing) return // 日本語の変換確定の Enter では沈めない
+        if (e.key === 'Enter') {
+          onSink(value.trim() || null)
+          setValue('')
+          e.currentTarget.blur()
+        } else if (e.key === 'Escape') {
+          setValue('')
+          e.currentTarget.blur()
+        }
+      }}
+    />
+  )
+}
+
+// 浮上画面の「今回沈めたもの」。中身は端末の中だけにあり、ここで手放せる
+function SunkSummary({ count, thoughts, onRelease }: { count: number, thoughts: SunkThought[], onRelease: () => void }) {
+  const [open, setOpen] = useState(false)
+  if (count === 0) return null
+  return (
+    <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      <div className="font-mincho" style={{ fontSize: 12, letterSpacing: '0.1em', opacity: 0.7 }}>
+        今回、{count}つのもやもやを深海に置いてきた
+      </div>
+      {thoughts.length > 0 ? (
+        <>
+          <button type="button" className="hud-btn" style={{ textTransform: 'none', letterSpacing: '0.1em' }} onClick={() => setOpen((v) => !v)}>
+            <span className="font-mincho">{open ? '[ 閉じる ]' : `[ 書いたものを見る（${thoughts.length}） ]`}</span>
+          </button>
+          {open ? (
+            <div style={{ maxWidth: 360, padding: '0 16px', textAlign: 'left' }}>
+              {thoughts.map((t) => (
+                <div key={t.at} className="font-mincho" style={{ fontSize: 12, opacity: 0.6, lineHeight: 1.9 }}>・{t.text}</div>
+              ))}
+              <div style={{ textAlign: 'center', marginTop: 8 }}>
+                <button type="button" className="hud-btn" style={{ textTransform: 'none', letterSpacing: '0.1em' }} onClick={onRelease}>
+                  <span className="font-mincho">[ すべて手放す ]</span>
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 function NotifyToggle({ state, onEnable, onDisable }: {
   state: NotificationState
   onEnable: () => void
@@ -785,8 +869,15 @@ export function FathomApp() {
     return { city: data.city, windSpeed, rainAmount, clouds, temp: data.temp, description: data.description } as Record<string, unknown>
   }, [clouds, data, rainAmount, windSpeed])
 
-  const { isCharging, turbidity, startCharge, stopCharge } = useAbyssalOverload({
-    chargeTimeRequired: 3000,
+  // 定時潜航中の進み具合 0..1（音の流れと、頭上の海面の光に使う）
+  const scheduledDiveFraction = fathomMode === 'scheduled' && hasDescended && sessionPhase === 'diving' && schedule.phase === 'diving'
+    ? schedule.elapsedInPhase / SCHEDULED_DIVE_MS
+    : null
+  const surfaceOutro = scheduledDiveFraction != null ? Math.max(0, Math.min(1, (scheduledDiveFraction - 0.96) / 0.04)) : 0
+
+  // 長押しは休憩中の深呼吸（4 秒吸って、離して吐く）
+  const { isCharging, chargeProgress, turbidity, startCharge, stopCharge } = useAbyssalOverload({
+    chargeTimeRequired: 4000,
     onReleaseSuccess: () => {
       setProgress(prev => Math.max(0, prev - 0.08))
 
@@ -810,9 +901,7 @@ export function FathomApp() {
     isCharging,
     turbidity,
     focusMix: fathomMode === 'scheduled',
-    diveFraction: fathomMode === 'scheduled' && hasDescended && sessionPhase === 'diving' && schedule.phase === 'diving'
-      ? schedule.elapsedInPhase / SCHEDULED_DIVE_MS
-      : null,
+    diveFraction: scheduledDiveFraction,
   })
   
   const { diveTimeMs } = useFathomMemory(audio.running && settled, selfId)
@@ -1013,6 +1102,9 @@ export function FathomApp() {
   const [lastDive, setLastDive] = useState<DiveCardInfo | null>(null)
   useEffect(() => {
     if (isDivingNow) {
+      sunkCountRef.current = 0
+      setSunkCount(0)
+      setDiveThoughts([])
       const port = fathomMode === 'scheduled' ? schedule.port : PORTS.find((p) => p.query === city)
       diveStartRef.current = {
         at: Date.now(),
@@ -1033,10 +1125,67 @@ export function FathomApp() {
       portName: start.portName,
       weather: data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp } : null,
       companions: fathomMode === 'scheduled' ? maxDiversRef.current : 1,
+      sunk: sunkCountRef.current,
     })
     // 潜航の開始・終了の瞬間だけ反応させる
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDivingNow])
+
+  // 潜航中に湧いたもやもやを「沈める」。タップ（または Space）だけでも、一行書いて Enter でもよい
+  const [sinkPulse, setSinkPulse] = useState(0)
+  const [sunkCount, setSunkCount] = useState(0)
+  const sunkCountRef = useRef(0)
+  const [diveThoughts, setDiveThoughts] = useState<SunkThought[]>([])
+  const canSink = isDivingNow && fathomMode !== 'sleep'
+  const canBreathe = hasDescended && settled && (sessionPhase === 'interval' || fathomMode === 'meditate' || fathomMode === 'sleep')
+
+  const sinkThought = useCallback((text: string | null) => {
+    setSinkPulse((p) => p + 1)
+    sunkCountRef.current += 1
+    setSunkCount(sunkCountRef.current)
+    audio.triggerSink()
+    if (text) {
+      const thought = saveThought(text)
+      setDiveThoughts((prev) => [...prev, thought])
+    }
+  }, [audio])
+
+  const handleReleaseThoughts = useCallback(() => {
+    releaseThoughts(diveThoughts.map((t) => t.at))
+    setDiveThoughts([])
+  }, [diveThoughts])
+
+  // 灯りの操作：短く触れたら「沈める」、休憩中に長押ししたら深呼吸
+  const pressStartRef = useRef<number | null>(null)
+  const handleCrystalDown = useCallback(() => {
+    pressStartRef.current = performance.now()
+    if (canBreathe) startCharge()
+  }, [canBreathe, startCharge])
+  const handleCrystalUp = useCallback(() => {
+    const startedAt = pressStartRef.current
+    pressStartRef.current = null
+    if (startedAt == null) return
+    if (canBreathe) stopCharge()
+    if (performance.now() - startedAt < 300 && canSink) sinkThought(null)
+  }, [canBreathe, canSink, sinkThought, stopCharge])
+  const handleCrystalCancel = useCallback(() => {
+    pressStartRef.current = null
+    if (isCharging) stopCharge()
+  }, [isCharging, stopCharge])
+
+  // 入力欄の外で Space を押したら、書かずにそのまま沈める
+  useEffect(() => {
+    if (!canSink) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat || e.isComposing) return
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'BUTTON' || target.isContentEditable)) return
+      e.preventDefault()
+      sinkThought(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [canSink, sinkThought])
 
   // Stripe の支払い完了後に ?thanks=1 で戻ってきたら、ひとことお礼を出す
   const [showThanks, setShowThanks] = useState(false)
@@ -1182,16 +1331,31 @@ export function FathomApp() {
           sessionPhase={sessionPhase} 
           isCharging={isCharging}       
           turbidity={turbidity}         
-          onChargeStart={startCharge}   
-          onChargeStop={stopCharge}
+          onChargeStart={handleCrystalDown}
+          onChargeStop={handleCrystalUp}
+          onChargeCancel={handleCrystalCancel}
           tuningValue={tuningValue}
-          isTuning={isTuning}     
+          isTuning={isTuning}
+          companionCount={joinedScheduled ? (sessionPhase === 'interval' || scheduledWaiting ? waitersNow : diversNow) - 1 : 0}
+          surfaceOutro={surfaceOutro}
+          sinkPulse={sinkPulse}
         />
       </div>
 
       <div className="scene-vignette" />
 
       <EdgeResonanceOverlay ripples={ripples} />
+
+      {/* 休憩中は、灯りの上に浮上画面の文字が重なるので、ボタン以外ならどこを長押ししても深呼吸できるようにする */}
+      {hasDescended && settled && sessionPhase === 'interval' ? (
+        <div
+          className="breath-catcher"
+          onPointerDown={handleCrystalDown}
+          onPointerUp={handleCrystalUp}
+          onPointerLeave={handleCrystalCancel}
+          onPointerCancel={handleCrystalCancel}
+        />
+      ) : null}
 
       <div className="fathom-logo" style={{ opacity: beaconMounted ? 1 : Math.max(0.3, uiOpacity) }}>
         F A T H O M
@@ -1260,7 +1424,7 @@ export function FathomApp() {
         ) : null}
 
         {hasDescended && settled && sessionPhase === 'interval' && fathomMode === 'scheduled' ? (
-          <div style={{ position: 'absolute', top: '42%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease', pointerEvents: 'auto' }}>
+          <div style={{ position: 'absolute', top: '42%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease' }}>
             <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(143,216,255,0.85)' }}>
               {lastDiveCount > 1 ? `今回は ${lastDiveCount}人と潜りました。` : '今回は、貸し切りの海でした。'}<br/>水面で息を整えて。
             </p>
@@ -1270,8 +1434,18 @@ export function FathomApp() {
             <div className="font-mincho" style={{ marginTop: 10, fontSize: 12, opacity: 0.6 }}>
               {schedule.port.label}
             </div>
-            {lastDive ? <DiveShareActions info={lastDive} /> : null}
-            <div style={{ marginTop: 12 }}>{notifyToggle}</div>
+            {/* 文字の部分は灯りへの長押し（深呼吸）を邪魔しないよう素通しにし、ボタンだけ押せるようにする */}
+            <div style={{ pointerEvents: 'auto', display: 'inline-block' }}>
+              <SunkSummary count={lastDive?.sunk ?? 0} thoughts={diveThoughts} onRelease={handleReleaseThoughts} />
+              {lastDive ? <DiveShareActions info={lastDive} /> : null}
+              <div style={{ marginTop: 12 }}>{notifyToggle}</div>
+            </div>
+          </div>
+        ) : null}
+
+        {isCharging ? (
+          <div className="breath-guide font-mincho">
+            {chargeProgress < 1 ? '吸って……' : '離して、ゆっくり吐く'}
           </div>
         ) : null}
 
@@ -1285,7 +1459,7 @@ export function FathomApp() {
         ) : null}
 
         {hasDescended && settled && sessionPhase === 'completed' && fathomMode !== 'sleep' ? (
-          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', pointerEvents: 'auto' }}>
+          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%' }}>
             <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)', marginBottom: 32 }}>
               {fathomMode === 'meditate' ? (
                 <>水面に到達しました。<br/>息を整え、次の深淵へ。</>
@@ -1293,10 +1467,13 @@ export function FathomApp() {
                 <>90分の潜航を終えました。<br/>深海で得た思考を、そっと持ち帰って。</>
               )}
             </p>
-            <button className="hud-btn" onClick={handleDiveAgain} style={{ fontSize: 12, padding: '8px 24px', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 24 }}>
-              [ descend again ]
-            </button>
-            {lastDive ? <DiveShareActions info={lastDive} /> : null}
+            <div style={{ pointerEvents: 'auto', display: 'inline-block' }}>
+              <button className="hud-btn" onClick={handleDiveAgain} style={{ fontSize: 12, padding: '8px 24px', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 24 }}>
+                [ descend again ]
+              </button>
+              <SunkSummary count={lastDive?.sunk ?? 0} thoughts={diveThoughts} onRelease={handleReleaseThoughts} />
+              {lastDive ? <DiveShareActions info={lastDive} /> : null}
+            </div>
           </div>
         ) : null}
 
@@ -1453,15 +1630,26 @@ export function FathomApp() {
             {sessionPhase === 'interval' ? (
               <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
                 <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.1em', marginBottom: 24 }} className="font-mincho">
-                  （ 減圧中：水面で息を整えてください ）
+                  （ 減圧中：画面を長押しして、深呼吸を ）
+                </div>
+              </div>
+            ) : null}
+
+            {canSink ? (
+              <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
+                <SinkInput onSink={sinkThought} />
+                <div className="font-mincho sink-hint">
+                  浮かんだもやもやは、灯りに触れる（Space）か、書いて Enter で深海に沈める
                 </div>
               </div>
             ) : null}
 
             <div className={`hud-bottom-right ${visibilityClass(settled, 4)}`}>
-              <div style={{ opacity: 0.3, fontSize: '9px', letterSpacing: '0.2em', marginBottom: 12, fontFamily: 'monospace' }}>
-                hold crystal to purge pressure
-              </div>
+              {canBreathe ? (
+                <div className="font-mincho" style={{ opacity: 0.4, fontSize: '10px', letterSpacing: '0.12em', marginBottom: 12 }}>
+                  {sessionPhase === 'interval' ? '長押し：深呼吸' : '灯りを長押し：深呼吸'}
+                </div>
+              ) : null}
               <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} />
               <div style={{ display: 'flex', gap: 24 }}>
                 {!audio.running ? (

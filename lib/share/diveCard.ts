@@ -8,6 +8,7 @@ export type DiveCardInfo = {
   portName: string       // 例：'Tristan da Cunha'
   weather: { windSpeed: number, temp: number } | null
   companions: number     // 自分を含む人数
+  sunk?: number          // 潜航中に沈めたもやもやの数（中身は載せない）
 }
 
 const MINCHO = '"Shippori Mincho", "Noto Serif JP", "Yu Mincho", serif'
@@ -26,7 +27,8 @@ export function diveShareText(info: DiveCardInfo): string {
   const place = info.portLabel.split(' / ').pop() ?? info.portName
   const weather = info.weather ? `（風 ${info.weather.windSpeed.toFixed(1)}m/s・${Math.round(info.weather.temp)}°C）` : ''
   const who = info.companions > 1 ? `${info.companions}人で` : ''
-  return `${info.modeLabel}で${who}「${place}」の海に${info.minutes}分潜った${weather} #Fathom`
+  const sunk = info.sunk ? `もやもやを${info.sunk}つ沈めてきた。` : ''
+  return `${info.modeLabel}で${who}「${place}」の海に${info.minutes}分潜った${weather}。${sunk} #Fathom`
 }
 
 // SNS 向けの縦長カード（1080×1350）を描く
@@ -95,7 +97,12 @@ async function drawCard(info: DiveCardInfo): Promise<HTMLCanvasElement> {
 
   ctx.fillStyle = 'rgba(143, 216, 255, 0.9)'
   ctx.font = `400 36px ${MINCHO}`
-  ctx.fillText(companionsLine(info.companions), cx, 1205)
+  ctx.fillText(companionsLine(info.companions), cx, info.sunk ? 1185 : 1205)
+  if (info.sunk) {
+    ctx.fillStyle = 'rgba(235, 245, 252, 0.6)'
+    ctx.font = `400 28px ${MINCHO}`
+    ctx.fillText(`もやもやを ${info.sunk}つ 深海に置いてきた`, cx, 1235)
+  }
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.35)'
   ctx.font = '300 24px monospace'
