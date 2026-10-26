@@ -6,6 +6,8 @@ export const DEFAULT_MASTER_VOLUME = 0.8
 
 const LIMITER_TRIM = 0.82
 
+const NOISE_LOOP_SEC = 23
+
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
 export type WeatherInput = {
@@ -92,8 +94,22 @@ export function useDeepSeaAudio(opts: {
   temp?: number,
   descent: number,
   isCharging?: boolean,
-  turbidity?: number
+  turbidity?: number,
+  /** 集中ミックス（定時潜航）。急に注意を引く音を減らし、低音や揺れを控えめにする */
+  focusMix?: boolean,
+  /** 定時潜航中の進み具合 0..1（潜航中以外は null）。音の流れ（導入・静けさ・浮上）に使う */
+  diveFraction?: number | null
 }) {
+  const focusMix = Boolean(opts.focusMix)
+  const diveFraction = opts.diveFraction ?? null
+  // 25 分の流れ：最初の 2 分は海面の天気がはっきり、最後の 1 分でゆっくり浮かび上がる
+  const arcIntro = focusMix && diveFraction != null ? 1 - clamp01(diveFraction / 0.08) : 0
+  const arcOutro = focusMix && diveFraction != null ? clamp01((diveFraction - 0.96) / 0.04) : 0
+  const progressRef = useRef(opts.progress)
+  progressRef.current = opts.progress
+  const focusRef = useRef({ focusMix, diveFraction })
+  focusRef.current = { focusMix, diveFraction }
+
   const knobs = useMemo(() => weatherToSound({
     windSpeed: opts.windSpeed,
     rainAmount: opts.rainAmount,
@@ -118,6 +134,9 @@ export function useDeepSeaAudio(opts: {
   const descentFilterRef = useRef<BiquadFilterNode | null>(null)
 
   const subDroneGainRef = useRef<GainNode | null>(null)
+  const breathGainRef = useRef<GainNode | null>(null)
+  const toneGainRef = useRef<GainNode | null>(null)
+  const surfaceCueArmedRef = useRef(true)
 
   // 海面の天気レイヤー（深く潜るほど遠く、こもっていく）
   const weatherBusRef = useRef<GainNode | null>(null)
@@ -162,7 +181,9 @@ export function useDeepSeaAudio(opts: {
     reverbRef.current = reverb
 
     // --- Ambient Pink Noise ---
-    const noiseBuffer = createPinkNoiseBuffer(ctx)
+    // 5 秒ループだと 25 分で約 300 回繰り返され、集中していると「同じ波」に気づいてしまう。
+    // 長めのループにし、各レイヤーは再生位置を大きくずらして使う
+    const noiseBuffer = createPinkNoiseBuffer(ctx, NOISE_LOOP_SEC)
     const noiseSrc = ctx.createBufferSource()
     noiseSrc.buffer = noiseBuffer
     noiseSrc.loop = true
@@ -181,7 +202,8 @@ export function useDeepSeaAudio(opts: {
     breathLFO.type = 'sine'
     breathLFO.frequency.value = 0.14 
     const breathGain = ctx.createGain()
-    breathGain.gain.value = 0.15 
+    breathGain.gain.value = 0.15
+    breathGainRef.current = breathGain
     breathLFO.connect(breathGain)
     breathGain.connect(noiseGain.gain) 
     breathLFO.start()
@@ -210,7 +232,7 @@ export function useDeepSeaAudio(opts: {
     descentFilter.connect(descentGain)
     descentGain.connect(master)
     descentGain.connect(reverb) 
-    descentSrc.start()
+    descentSrc.start(0, 11.4)
 
     // --- Sub-bass Drone ---
     const subOsc = ctx.createOscillator()
@@ -258,7 +280,7 @@ export function useDeepSeaAudio(opts: {
     windSrc.connect(windFilter)
     windFilter.connect(windGain)
     windGain.connect(weatherBus)
-    windSrc.start(0, 1.3) // 海鳴りと同じバッファなので、再生位置をずらして重なりを避ける
+    windSrc.start(0, 7.9) // 海鳴りと同じバッファなので、再生位置をずらして重なりを避ける
     windGainRef.current = windGain
     windFilterRef.current = windFilter
 
@@ -274,12 +296,13 @@ export function useDeepSeaAudio(opts: {
     hissSrc.connect(hissFilter)
     hissFilter.connect(hissGain)
     hissGain.connect(weatherBus)
-    hissSrc.start(0, 2.7)
+    hissSrc.start(0, 15.3)
     rainHissGainRef.current = hissGain
 
     // 気温：ごく小さな和音。寒いほど高く澄み、暖かいほど低く柔らかい
     const toneGain = ctx.createGain()
     toneGain.gain.value = 0.03
+    toneGainRef.current = toneGain
     const toneLFO = ctx.createOscillator()
     toneLFO.frequency.value = 0.05
     const toneLFODepth = ctx.createGain()
@@ -345,8 +368,11 @@ export function useDeepSeaAudio(opts: {
     // 海面が荒れている（風が強い）ほど、浅いところの海鳴りも明るく大きくなる
     const currentTurbidity = opts.turbidity || 0
     const surfaceRough = knobs.wind * (1 - opts.progress)
-    const targetFreq = currentTurbidity > 0 ? 3000 + (currentTurbidity * 5000) : 100 + (1 - opts.progress) * 800 + surfaceRough * 500
-    pinkNoiseFilterRef.current.frequency.setTargetAtTime(targetFreq, now, 1.0)
+    // 浮上の 1 分前から、海鳴りが少しずつ明るくなる（光の方へ戻っていく）
+    const targetFreq = currentTurbidity > 0
+      ? 3000 + (currentTurbidity * 5000)
+      : 100 + (1 - opts.progress) * 800 + surfaceRough * 500 + arcOutro * 700
+    pinkNoiseFilterRef.current.frequency.setTargetAtTime(targetFreq, now, arcOutro > 0 ? 4.0 : 1.0)
 
     // 濁っている時は、海鳴りの音量自体も少し暴れさせる
     if (pinkNoiseGainRef.current) {
@@ -354,12 +380,16 @@ export function useDeepSeaAudio(opts: {
       pinkNoiseGainRef.current.gain.setTargetAtTime(baseGain, now, 1.0)
     }
 
+    // 集中ミックスでは「呼吸」の揺れを小さくして、変化の少ない音にする
+    breathGainRef.current?.gain.setTargetAtTime(focusMix ? 0.05 : 0.15, now, 2.0)
+
     // チャージ中はサブベース（ドローン）が強烈にうなりを上げる
-    const baseSub = opts.progress * 0.4
+    // 集中ミックスでは深くなっても低音は控えめ（ヘッドホンで 25 分聴いても疲れないように）
+    const baseSub = focusMix ? Math.min(0.12, opts.progress * 0.15) : opts.progress * 0.4
     const chargeSub = opts.isCharging ? 0.8 : 0.0
     // 手を離したらドローンは素早く引く（解放音と重なって音割れしないように）
     subDroneGainRef.current.gain.setTargetAtTime(baseSub + chargeSub, now, opts.isCharging ? 0.5 : 0.12)
-  }, [opts.progress, opts.isCharging, opts.turbidity, knobs.wind])
+  }, [opts.progress, opts.isCharging, opts.turbidity, knobs.wind, focusMix, arcOutro])
 
   // --- Descent ---
   useEffect(() => {
@@ -385,9 +415,13 @@ export function useDeepSeaAudio(opts: {
 
     // 快晴は開けて明るく、曇天・雪はこもる。深く潜るほどさらにこもる
     const surfaceCutoff = (9000 - overcast * 6000) * (1 - snow * 0.5)
-    const cutoff = Math.max(220, surfaceCutoff * Math.pow(1 - depth * 0.92, 2))
-    weatherFilterRef.current.frequency.setTargetAtTime(cutoff, now, 1.5)
-    weatherDepthGainRef.current.gain.setTargetAtTime(1 - depth * 0.55, now, 1.5)
+    // 浮上の 1 分前からは、こもっていた海面の音がゆっくり開いていく
+    const cutoff = Math.max(220, surfaceCutoff * Math.pow(1 - depth * 0.92, 2)) * (1 + arcOutro * 2.5)
+    weatherFilterRef.current.frequency.setTargetAtTime(cutoff, now, arcOutro > 0 ? 4.0 : 1.5)
+    // 集中ミックス：導入（最初の 2 分）は海面の天気をはっきり、潜航中は少し引いて静けさを優先する
+    const depthGain = (1 - depth * 0.55) * (focusMix ? 0.85 + arcIntro * 0.4 : 1) + arcOutro * 0.25
+    weatherDepthGainRef.current.gain.setTargetAtTime(depthGain, now, 1.5)
+    toneGainRef.current?.gain.setTargetAtTime(focusMix ? 0.018 : 0.03, now, 3.0)
 
     windFilterRef.current?.frequency.setTargetAtTime(260 + wind * 760, now, 2.0)
     rainHissGainRef.current?.gain.setTargetAtTime(Math.pow(rain, 1.5) * 0.12, now, 2.0)
@@ -399,7 +433,46 @@ export function useDeepSeaAudio(opts: {
     fifthOsc?.frequency.setTargetAtTime(root * 1.5, now, 3.0)
     shimmerOsc?.frequency.setTargetAtTime(root * 4, now, 3.0)
     toneShimmerGainRef.current?.gain.setTargetAtTime(cold * 0.35, now, 3.0)
-  }, [running, knobs, opts.progress])
+  }, [running, knobs, opts.progress, focusMix, arcIntro, arcOutro])
+
+  // --- 浮上の合図：潜航の最後の 1 分、和音がゆっくり 1 オクターブ上へ昇っていく ---
+  useEffect(() => {
+    if (!focusMix || diveFraction == null) return
+    if (diveFraction < 0.5) {
+      surfaceCueArmedRef.current = true
+      return
+    }
+    const ctx = ctxRef.current
+    if (!running || !ctx || !masterGainRef.current || !reverbRef.current) return
+    if (diveFraction < 0.96 || !surfaceCueArmedRef.current) return
+    surfaceCueArmedRef.current = false
+
+    const now = ctx.currentTime
+    // 潜航の残り時間いっぱいを使って昇る（途中参加で残りが短くても最低 10 秒）
+    const duration = Math.max(10, (1 - diveFraction) * 25 * 60)
+    const root = toneOscsRef.current[0]?.frequency.value ?? 130
+    const out = ctx.createGain()
+    out.gain.setValueAtTime(0, now)
+    out.gain.linearRampToValueAtTime(0.03, now + Math.min(20, duration * 0.4))
+    out.gain.setValueAtTime(0.03, now + duration * 0.85)
+    out.gain.linearRampToValueAtTime(0, now + duration + 2)
+    out.connect(masterGainRef.current)
+    const send = ctx.createGain()
+    send.gain.value = 0.6
+    out.connect(send).connect(reverbRef.current)
+
+    const oscs = [1, 1.5].map((ratio) => {
+      const osc = ctx.createOscillator()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(root * 2 * ratio, now)
+      osc.frequency.exponentialRampToValueAtTime(root * 4 * ratio, now + duration)
+      osc.connect(out)
+      osc.start(now)
+      osc.stop(now + duration + 2.5)
+      return osc
+    })
+    oscs[oscs.length - 1].onended = () => { out.disconnect(); send.disconnect() }
+  }, [focusMix, diveFraction, running])
 
   // --- Surface Weather: 突風（強い風ほど頻繁に、大きく揺れる） ---
   useEffect(() => {
@@ -469,76 +542,87 @@ export function useDeepSeaAudio(opts: {
   }, [running])
 
   // --- Ecosystem (Whales and Bubbles) ---
+  // 以前は深度（毎秒更新）を依存にしていたため、1 秒ごとにタイマーが作り直されて
+  // 「3〜10 秒に 1 回」のはずの音がほぼ毎秒鳴っていた。深度は ref で読み、タイマーは running の間だけ回す
   useEffect(() => {
     if (!running || !ctxRef.current || !masterGainRef.current || !reverbRef.current) return
     const ctx = ctxRef.current
 
     let timeoutId: number
 
-    const scheduleEcosystem = () => {
-      const isDeep = opts.progress > 0.4
-      
-      if (isDeep) {
-        if (Math.random() > 0.6) {
-          const osc = ctx.createOscillator()
-          const gain = ctx.createGain()
-          const panner = ctx.createStereoPanner()
-          
-          osc.type = 'sine'
-          const startFreq = 120 + Math.random() * 100
-          osc.frequency.setValueAtTime(startFreq, ctx.currentTime)
-          osc.frequency.exponentialRampToValueAtTime(startFreq * 0.5, ctx.currentTime + 3.0) 
-          
-          panner.pan.value = Math.random() * 2 - 1 
-          
-          gain.gain.setValueAtTime(0, ctx.currentTime)
-          gain.gain.linearRampToValueAtTime(0.1 + Math.random() * 0.1, ctx.currentTime + 1.0)
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4.0)
-          
-          osc.connect(gain).connect(panner).connect(reverbRef.current!) 
-          panner.connect(masterGainRef.current!)
-          
-          osc.start()
-          osc.stop(ctx.currentTime + 4.5)
-        }
-      } else {
-        if (Math.random() > 0.3) {
-          const osc = ctx.createOscillator()
-          const gain = ctx.createGain()
-          const panner = ctx.createStereoPanner()
-          const filter = ctx.createBiquadFilter()
-          
-          osc.type = 'sine'
-          const startFreq = 250 + Math.random() * 150
-          osc.frequency.setValueAtTime(startFreq, ctx.currentTime)
-          osc.frequency.exponentialRampToValueAtTime(startFreq * 1.5, ctx.currentTime + 0.04) 
-          
-          filter.type = 'lowpass'
-          filter.frequency.value = 800
-          
-          panner.pan.value = Math.random() * 2 - 1
-          
-          gain.gain.setValueAtTime(0, ctx.currentTime)
-          gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.01)
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06)
-          
-          osc.connect(gain).connect(filter).connect(panner).connect(masterGainRef.current!)
-          const reverbSend = ctx.createGain()
-          reverbSend.gain.value = 0.3
-          panner.connect(reverbSend).connect(reverbRef.current!)
+    // 集中ミックスでは 30〜90 秒に 1 回、小さく遠くで鳴らす
+    const nextDelay = () => focusRef.current.focusMix ? 30000 + Math.random() * 60000 : 3000 + Math.random() * 7000
 
-          osc.start()
-          osc.stop(ctx.currentTime + 0.1)
-        }
+    const scheduleEcosystem = () => {
+      const { focusMix: isFocus, diveFraction: fraction } = focusRef.current
+      const isDeep = progressRef.current > 0.4
+      // 導入の最初と、浮上前の最後は生き物の音を鳴らさない
+      const quiet = isFocus && fraction != null && (fraction < 0.04 || fraction > 0.94)
+      const level = isFocus ? 0.45 : 1
+      const chance = isFocus ? 1 : (isDeep ? 0.4 : 0.7)
+
+      if (quiet || Math.random() >= chance) {
+        timeoutId = window.setTimeout(scheduleEcosystem, nextDelay())
+        return
+      }
+
+      if (isDeep) {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        const panner = ctx.createStereoPanner()
+        
+        osc.type = 'sine'
+        const startFreq = 120 + Math.random() * 100
+        osc.frequency.setValueAtTime(startFreq, ctx.currentTime)
+        osc.frequency.exponentialRampToValueAtTime(startFreq * 0.5, ctx.currentTime + 3.0) 
+        
+        panner.pan.value = Math.random() * 2 - 1 
+        
+        gain.gain.setValueAtTime(0, ctx.currentTime)
+        gain.gain.linearRampToValueAtTime((0.1 + Math.random() * 0.1) * level, ctx.currentTime + 1.0)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4.0)
+
+        osc.connect(gain).connect(panner).connect(reverbRef.current!)
+        panner.connect(masterGainRef.current!)
+
+        osc.start()
+        osc.stop(ctx.currentTime + 4.5)
+      } else {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        const panner = ctx.createStereoPanner()
+        const filter = ctx.createBiquadFilter()
+        
+        osc.type = 'sine'
+        const startFreq = 250 + Math.random() * 150
+        osc.frequency.setValueAtTime(startFreq, ctx.currentTime)
+        osc.frequency.exponentialRampToValueAtTime(startFreq * 1.5, ctx.currentTime + 0.04) 
+        
+        filter.type = 'lowpass'
+        filter.frequency.value = isFocus ? 500 : 800
+
+        panner.pan.value = Math.random() * 2 - 1
+
+        gain.gain.setValueAtTime(0, ctx.currentTime)
+        gain.gain.linearRampToValueAtTime(0.15 * level, ctx.currentTime + 0.01)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06)
+        
+        osc.connect(gain).connect(filter).connect(panner).connect(masterGainRef.current!)
+        const reverbSend = ctx.createGain()
+        reverbSend.gain.value = 0.3
+        panner.connect(reverbSend).connect(reverbRef.current!)
+
+        osc.start()
+        osc.stop(ctx.currentTime + 0.1)
       }
       
-      timeoutId = window.setTimeout(scheduleEcosystem, 3000 + Math.random() * 7000)
+      timeoutId = window.setTimeout(scheduleEcosystem, nextDelay())
     }
-    
-    scheduleEcosystem()
-    
+
+    timeoutId = window.setTimeout(scheduleEcosystem, nextDelay())
+
     return () => clearTimeout(timeoutId)
-  }, [running, opts.progress])
+  }, [running])
 
   // --- Interactions ---
   const triggerFrictionImpulse = useCallback((payload: { intensity: number, durationMs: number, color: number }) => {

@@ -76,6 +76,12 @@ export type UseRealtimeLettersOptions = {
   onRemoteResonance?: (payload: ResonancePulsePayload) => void
 
   /**
+   * Presence に載せる今の状態（例：'landing' | 'waiting' | 'diving' | 'solo'）。
+   * 変わるたびに track し直すので、状態ごとの人数を数えられる。
+   */
+  presenceStatus?: string
+
+  /**
    * Depth (0..1) above which normal archive surfacing is paused.
    * Below: surfacing slowly resumes. Default 0.34.
    */
@@ -105,6 +111,8 @@ export type UseRealtimeLettersReturn = {
   archive: LetterPayload[]
   activeLetter: LetterPayload | null
   presenceCount: number
+  /** presenceStatus ごとの人数（自分を含む） */
+  presenceByStatus: Record<string, number>
   archiveLoading: boolean
   latestHeatmapPulse: HeatmapPulse | null
   sendLetter: (text: string) => Promise<LetterPayload | null>
@@ -190,12 +198,14 @@ export function useRealtimeLetters({
   archiveSurfacingMinIntervalMs = 14000,
   enableFirstSurfacing = true,
   firstSurfacingGraceMs = 1600,
+  presenceStatus = 'landing',
 }: UseRealtimeLettersOptions): UseRealtimeLettersReturn {
   const [status, setStatus] = useState<RealtimeStatus>('idle')
   const [liveLetters, setLiveLetters] = useState<LetterPayload[]>([])
   const [archive, setArchive] = useState<LetterPayload[]>([])
   const [activeLetter, setActiveLetter] = useState<LetterPayload | null>(null)
   const [presenceCount, setPresenceCount] = useState(1)
+  const [presenceByStatus, setPresenceByStatus] = useState<Record<string, number>>({})
   const [archiveLoading, setArchiveLoading] = useState(false)
   const [latestHeatmapPulse, setLatestHeatmapPulse] =
     useState<HeatmapPulse | null>(null)
@@ -214,6 +224,8 @@ export function useRealtimeLetters({
   const weatherRef = useRef(currentWeatherSnapshot ?? null)
   const cityRef = useRef(city)
   const langRef = useRef(preferredLang ?? null)
+  const presenceStatusRef = useRef(presenceStatus)
+  const subscribedRef = useRef(false)
 
   const firstSurfacingPlannedRef = useRef(false)
   const firstSurfacingFiredRef = useRef(false)
@@ -405,14 +417,23 @@ export function useRealtimeLetters({
         const state = channel.presenceState() as RealtimePresenceState
         const count = Object.keys(state).length
         setPresenceCount(Math.max(1, count))
+
+        const byStatus: Record<string, number> = {}
+        for (const metas of Object.values(state)) {
+          const s = (metas[0] as { status?: string } | undefined)?.status ?? 'unknown'
+          byStatus[s] = (byStatus[s] ?? 0) + 1
+        }
+        setPresenceByStatus(byStatus)
       })
       .subscribe(async (subStatus) => {
         if (subStatus === 'SUBSCRIBED') {
           setStatus('subscribed')
+          subscribedRef.current = true
           await channel.track({
             id: selfId,
             name: selfName ?? 'anonymous',
             city: city ?? null,
+            status: presenceStatusRef.current,
             joinedAt: Date.now(),
           })
         } else if (subStatus === 'CHANNEL_ERROR' || subStatus === 'TIMED_OUT') {
@@ -430,9 +451,25 @@ export function useRealtimeLetters({
       }
       void client.removeChannel(channel)
       channelRef.current = null
+      subscribedRef.current = false
       setPresenceCount(1)
+      setPresenceByStatus({})
     }
   }, [city, emitHeatmapPulse, enqueueLive, roomId, selfId, selfName])
+
+  // 状態（待機中・潜航中など）が変わったら Presence を更新する
+  useEffect(() => {
+    presenceStatusRef.current = presenceStatus
+    const channel = channelRef.current
+    if (!channel || !subscribedRef.current) return
+    void channel.track({
+      id: selfId,
+      name: selfName ?? 'anonymous',
+      city: cityRef.current ?? null,
+      status: presenceStatus,
+      joinedAt: Date.now(),
+    })
+  }, [presenceStatus, selfId, selfName])
 
   // ---------- Initial archive fetch -----------------------------------------
   useEffect(() => {
@@ -683,6 +720,7 @@ export function useRealtimeLetters({
       archive,
       activeLetter,
       presenceCount,
+      presenceByStatus,
       archiveLoading,
       latestHeatmapPulse,
       sendLetter,
@@ -701,6 +739,7 @@ export function useRealtimeLetters({
       liveLetters,
       manualPlay,
       presenceCount,
+      presenceByStatus,
       sendLetter,
       sendResonance,
       status,

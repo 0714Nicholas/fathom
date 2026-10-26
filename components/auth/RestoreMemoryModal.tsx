@@ -76,7 +76,7 @@ export function RestoreMemoryModal({
           <input
             type="text"
             className="seed-input"
-            placeholder="e.g. silent pale snow"
+            placeholder="e.g. silent pale snow 417"
             value={inputVal}
             onChange={(e) => { setInputVal(e.target.value); setError(false); }}
             autoFocus

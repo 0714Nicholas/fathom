@@ -28,27 +28,31 @@ const ADJECTIVES_STATE = [
   ]
   
   /**
-   * 3つの単語を組み合わせて、Fathomの世界観に合った固有の座標（ID）を生成します。
-   * 例: "silent-pale-snow", "drifting-midnight-echo"
+   * 3つの単語と3桁の数字を組み合わせて、Fathomの世界観に合った固有の座標（ID）を生成します。
+   * 例: "silent-pale-snow-417", "drifting-midnight-echo-082"
+   * 3単語だけだと約1.5万通りしかなく、利用者が150人ほどで重複しやすくなるため数字を足している（約1,560万通り）。
    */
   export function generateFathomCoordinate(): string {
     const state = ADJECTIVES_STATE[Math.floor(Math.random() * ADJECTIVES_STATE.length)]
     const color = ADJECTIVES_COLOR[Math.floor(Math.random() * ADJECTIVES_COLOR.length)]
     const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)]
-    return `${state}-${color}-${noun}`
+    const depth = String(Math.floor(Math.random() * 1000)).padStart(3, '0')
+    return `${state}-${color}-${noun}-${depth}`
   }
-  
+
   /**
-   * 入力された文字列が正しい座標のフォーマット（辞書に存在する3単語の組み合わせ）か検証します。
+   * 入力された文字列が正しい座標のフォーマットか検証します。
+   * 以前に発行した3単語だけの座標も、そのまま有効として扱います。
    * ユーザーが復帰する際（ログイン時）のバリデーションに使用します。
    */
   export function isValidFathomCoordinate(input: string): boolean {
     // ユーザーがスペース区切りで入力してもハイフンに正規化する
     const normalized = input.toLowerCase().trim().replace(/\s+/g, '-')
     const parts = normalized.split('-')
-    
-    if (parts.length !== 3) return false
-    
+
+    if (parts.length !== 3 && parts.length !== 4) return false
+    if (parts.length === 4 && !/^\d{3}$/.test(parts[3])) return false
+
     return (
       ADJECTIVES_STATE.includes(parts[0]) &&
       ADJECTIVES_COLOR.includes(parts[1]) &&
