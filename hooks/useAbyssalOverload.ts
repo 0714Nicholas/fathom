@@ -50,13 +50,8 @@ export function useAbyssalOverload({ onReleaseSuccess, chargeTimeRequired = 3000
       releaseHistory.current.push(now)
       
       // 直近5分（300000ms）以内のリリース回数をカウント
-      const recentReleases = releaseHistory.current.filter(t => now - t < 300000)
-      releaseHistory.current = recentReleases
-
-      // 3回以上連続で放つと海が荒れる（濁度MAX）
-      if (recentReleases.length >= 3) {
-        setTurbidity(1.0)
-      }
+      // （以前は 3 回以上で海が濁って長押しできなくなったが、深呼吸を何度しても罰しないよう廃止）
+      releaseHistory.current = releaseHistory.current.filter(t => now - t < 300000)
 
       onReleaseSuccess()
     }

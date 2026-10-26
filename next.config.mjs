@@ -12,7 +12,6 @@ const nextConfig = {
             { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
           ],
         },
-        { source: '/hdri/:path*', headers: longCache },
         { source: '/fonts/:path*', headers: longCache },
       ]
     },

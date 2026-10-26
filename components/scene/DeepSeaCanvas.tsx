@@ -5,6 +5,9 @@ import { Canvas } from '@react-three/fiber'
 import { CrystalCoral } from './CrystalCoral'
 import { MarineSnow } from './MarineSnow'
 import { ResonanceHeatmap } from './ResonanceHeatmap'
+import { CompanionLights } from './CompanionLights'
+import { SurfaceLight } from './SurfaceLight'
+import { SinkingThoughts } from './SinkingThoughts'
 
 export interface DeepSeaCanvasProps {
   progress?: number
@@ -25,8 +28,15 @@ export interface DeepSeaCanvasProps {
   turbidity?: number
   onChargeStart?: () => void
   onChargeStop?: () => void
+  onChargeCancel?: () => void
   tuningValue?: number
   isTuning?: boolean
+  /** 一緒に潜っている（または水面で待っている）自分以外の人数 */
+  companionCount?: number
+  /** 浮上直前の 0..1（最後の 1 分で 0 → 1） */
+  surfaceOutro?: number
+  /** 「沈める」たびに増える数 */
+  sinkPulse?: number
 }
 
 export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
@@ -40,33 +50,42 @@ export function DeepSeaCanvas(props: DeepSeaCanvasProps) {
         <fog attach="fog" args={['#02050a', 4, 12]} />
 
         <Suspense fallback={null}>
+          <SurfaceLight
+            progress={props.progress || 0}
+            clouds={props.clouds || 0}
+            outro={props.surfaceOutro || 0}
+          />
+
           <CrystalCoral {...props} />
-          
-          <MarineSnow 
-            variant="near" 
-            progress={props.progress || 0} 
-            descent={props.descent || 0} 
-            windSpeed={props.windSpeed || 0} 
+
+          <MarineSnow
+            variant="near"
+            progress={props.progress || 0}
+            descent={props.descent || 0}
+            windSpeed={props.windSpeed || 0}
             rainAmount={props.rainAmount || 0}
-            clouds={props.clouds || 0} 
+            clouds={props.clouds || 0}
             isSuspended={props.isSuspended}
             resonancePulse={props.resonancePulse} // 🚨 追加：衝撃波を雪に伝える
           />
-          <MarineSnow 
-            variant="far" 
-            progress={props.progress || 0} 
-            descent={props.descent || 0} 
-            windSpeed={props.windSpeed || 0} 
+          <MarineSnow
+            variant="far"
+            progress={props.progress || 0}
+            descent={props.descent || 0}
+            windSpeed={props.windSpeed || 0}
             rainAmount={props.rainAmount || 0}
-            clouds={props.clouds || 0} 
+            clouds={props.clouds || 0}
             isSuspended={props.isSuspended}
             resonancePulse={props.resonancePulse} // 🚨 追加：衝撃波を雪に伝える
           />
-          
-          <ResonanceHeatmap 
-            latestPulse={props.heatmapPulse} 
-            progress={props.progress || 0} 
-            descent={props.descent || 0} 
+
+          <CompanionLights count={props.companionCount || 0} />
+          <SinkingThoughts pulse={props.sinkPulse || 0} />
+
+          <ResonanceHeatmap
+            latestPulse={props.heatmapPulse}
+            progress={props.progress || 0}
+            descent={props.descent || 0}
           />
         </Suspense>
       </Canvas>

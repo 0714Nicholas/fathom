@@ -1,6 +1,6 @@
 /* Fathom service worker
  * - 画面（ナビゲーション）は network-first。オフライン時は最後に開いたページを返す
- * - ハッシュ付きの静的ファイル・フォント・HDR は cache-first
+ * - ハッシュ付きの静的ファイル・フォントは cache-first
  * - /api/* と外部オリジン（Supabase など）は一切キャッシュしない
  */
 
@@ -39,7 +39,6 @@ function isCacheFirstAsset(url) {
   return (
     url.pathname.startsWith('/_next/static/') ||
     url.pathname.startsWith('/fonts/') ||
-    url.pathname.startsWith('/hdri/') ||
     url.pathname.startsWith('/audio/')
   )
 }

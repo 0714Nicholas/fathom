@@ -717,6 +717,28 @@ export function useDeepSeaAudio(opts: {
     osc.stop(ctx.currentTime + 4.5)
   }, [])
 
+  // 「沈める」の音。かすかに「ぽつ」と鳴って、深いところへ消えていく
+  const triggerSink = useCallback(() => {
+    if (!ctxRef.current || !masterGainRef.current || !reverbRef.current) return
+    const ctx = ctxRef.current
+    const now = ctx.currentTime
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(420, now)
+    osc.frequency.exponentialRampToValueAtTime(240, now + 0.35)
+    gain.gain.setValueAtTime(0, now)
+    gain.gain.linearRampToValueAtTime(0.05, now + 0.01)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6)
+    osc.connect(gain).connect(masterGainRef.current)
+    const send = ctx.createGain()
+    send.gain.value = 0.6
+    gain.connect(send).connect(reverbRef.current)
+    osc.start(now)
+    osc.stop(now + 0.7)
+    osc.onended = () => { gain.disconnect(); send.disconnect() }
+  }, [])
+
   // 🚨 絶対零度の「破氷音」と、クリアな残響
   // 以前は別の AudioContext で鳴らしていたため、音量スライダーもリミッターも効かずに音割れしていた
   const triggerIceBreak = useCallback(() => {
@@ -815,6 +837,7 @@ export function useDeepSeaAudio(opts: {
     triggerFrictionImpulse,
     triggerSpatialResonance,
     triggerOverloadSonar, // 追加
-    triggerIceBreak
+    triggerIceBreak,
+    triggerSink
   }
 }

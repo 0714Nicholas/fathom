@@ -2,7 +2,7 @@
 
 import { useRef, useMemo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber' 
-import { Sphere, MeshTransmissionMaterial, Float, Environment } from '@react-three/drei'
+import { Sphere, MeshTransmissionMaterial, Float, Environment, Lightformer } from '@react-three/drei'
 import * as THREE from 'three'
 import type { DeepSeaCanvasProps } from './DeepSeaCanvas'
 
@@ -111,7 +111,7 @@ const karmaFragmentShader = `
 export function CrystalCoral({ 
   progress = 0, windSpeed = 0, clouds = 0, rainAmount = 0, resonancePulse = 0, temp = 15,
   diveTimeMs = 0, releaseCount = 0, isCharging = false, turbidity = 0,
-  onChargeStart, onChargeStop, 
+  onChargeStart, onChargeStop, onChargeCancel,
   tuningValue = 50, isTuning = false
 }: CrystalCoralProps) {
   
@@ -250,14 +250,21 @@ export function CrystalCoral({
       position={[0, 0, 0]}
       onPointerDown={(e) => { e.stopPropagation(); if (onChargeStart) onChargeStart(); }}
       onPointerUp={(e) => { e.stopPropagation(); if (onChargeStop) onChargeStop(); }}
-      onPointerOut={(e) => { e.stopPropagation(); if (onChargeStop) onChargeStop(); }}
+      onPointerOut={(e) => { e.stopPropagation(); if (onChargeCancel) onChargeCancel(); else if (onChargeStop) onChargeStop(); }}
     >
       {/* 光源を少し抑えめにし、結晶自身の発光を際立たせる */}
       <ambientLight intensity={lightIntensity * 0.3} />
       <directionalLight position={[5, 10, 5]} intensity={lightIntensity * 1.0} color="#ffffff" />
       <pointLight position={[-3, 0, 3]} intensity={0.5} color="#8fd8ff" />
-      {/* 外部 CDN（raw.githack.com）に依存しないよう、preset="night" と同じ HDR を自前で配信 */}
-      <Environment files="/hdri/dikhololo_night_1k.hdr" />
+      {/* 映り込み用の環境。以前の夜景 HDR は森と地平線が映って深海らしさを壊していたので、
+          頭上の海面から差し込む光と、深海の青い散乱光だけで組み立てる（最初の 1 フレームだけ描くので軽い） */}
+      <Environment resolution={128} frames={1}>
+        <color attach="background" args={['#010409']} />
+        <Lightformer form="circle" color="#9fdcff" intensity={1.1} scale={6} position={[0, 7, 0]} rotation-x={Math.PI / 2} />
+        <Lightformer form="circle" color="#5fa8d6" intensity={0.35} scale={14} position={[0, 7.5, 0]} rotation-x={Math.PI / 2} />
+        <Lightformer form="ring" color="#1b4966" intensity={0.7} scale={12} position={[0, 0, -9]} />
+        <Lightformer form="rect" color="#0b2234" intensity={0.5} scale={[24, 3, 1]} position={[0, -7, 0]} rotation-x={-Math.PI / 2} />
+      </Environment>
 
       <Float speed={1.5} rotationIntensity={0.1} floatIntensity={0.1}>
         <Sphere args={[0.42, 64, 64]}> 
