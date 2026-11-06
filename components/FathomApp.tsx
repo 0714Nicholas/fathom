@@ -255,6 +255,15 @@ const hudStyles = `
     pointer-events: none; transition: opacity 0.6s ease;
   }
 
+  /* 画面の中央に出す文章。横向きの短い画面では行間を詰めて、ロゴに触れないようにする */
+  .surface-panel {
+    position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; width: 100%;
+  }
+  .surface-panel.is-lower { top: 42%; }
+  .surface-panel-text { font-size: 15px; line-height: 2.6; }
+  .interval-hint { margin-bottom: 24px; }
+
   .hud-clock {
     display: block; padding: 0; margin-bottom: 8px;
     font-size: 13px; letter-spacing: 0.12em; text-transform: none;
@@ -338,6 +347,16 @@ const hudStyles = `
     .landing-intro { padding-bottom: 6px; line-height: 1.5; }
     .landing-inner { flex-direction: row; justify-content: center; gap: 40px; max-width: 760px; }
     .landing-col { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 0; }
+
+    /* 潜航中は、上下の表示がぶつからないよう四隅に寄せる */
+    .hud-top-right { top: 12px; right: 16px; }
+    .hud-bottom-left { bottom: 14px; left: 16px; }
+    .hud-bottom-right { bottom: 12px; right: 16px; }
+    .hud-bottom-center { bottom: 8px; }
+    .sink-input { width: min(320px, 38vw); font-size: 11px; }
+    .surface-panel, .surface-panel.is-lower { top: 52%; }
+    .surface-panel-text { font-size: 13px; line-height: 1.8; }
+    .interval-hint { margin-bottom: 2px; }
   }
 `
 
@@ -1414,8 +1433,8 @@ export function FathomApp() {
       <div className="hud-overlay" style={{ position: 'absolute', inset: 0, zIndex: 50, opacity: uiOpacity, transition: 'opacity 2s linear', pointerEvents: 'none' }}>
         
         {hasDescended && !settled ? (
-          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: phase === 'descending' ? 0.8 : 0, transition: 'opacity 3s ease' }}>
-            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)' }}>
+          <div className="surface-panel" style={{ opacity: phase === 'descending' ? 0.8 : 0, transition: 'opacity 3s ease' }}>
+            <p className="font-mincho surface-panel-text" style={{ color: 'rgba(255,255,255,0.85)' }}>
               都市のノイズを抜け、至高の孤独へ。<br/>残るのは思考のゆらぎと、遠き共鳴だけ。
             </p>
             <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>descending — {Math.round(descent * 100)}%</div>
@@ -1423,8 +1442,8 @@ export function FathomApp() {
         ) : null}
 
         {scheduledWaiting ? (
-          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', pointerEvents: 'auto' }}>
-            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)' }}>
+          <div className="surface-panel" style={{ pointerEvents: 'auto' }}>
+            <p className="font-mincho surface-panel-text" style={{ color: 'rgba(255,255,255,0.85)' }}>
               水面で、次の潜航を待っています。<br/>{schedule.port.label}
             </p>
             <div className="scheduled-clock" style={{ marginTop: 20 }}>
@@ -1441,8 +1460,8 @@ export function FathomApp() {
         ) : null}
 
         {hasDescended && settled && sessionPhase === 'interval' && fathomMode === 'scheduled' ? (
-          <div style={{ position: 'absolute', top: '42%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease' }}>
-            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(143,216,255,0.85)' }}>
+          <div className="surface-panel is-lower" style={{ opacity: 1, transition: 'opacity 3s ease' }}>
+            <p className="font-mincho surface-panel-text" style={{ color: 'rgba(143,216,255,0.85)' }}>
               {lastDiveCount > 1 ? `今回は ${lastDiveCount}人と潜りました。` : '今回は、貸し切りの海でした。'}<br/>水面で息を整えて。
             </p>
             <div className="scheduled-clock" style={{ marginTop: 20 }}>
@@ -1467,8 +1486,8 @@ export function FathomApp() {
         ) : null}
 
         {hasDescended && settled && sessionPhase === 'interval' && fathomMode !== 'scheduled' ? (
-          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%', opacity: 1, transition: 'opacity 3s ease' }}>
-            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(143,216,255,0.85)' }}>
+          <div className="surface-panel" style={{ opacity: 1, transition: 'opacity 3s ease' }}>
+            <p className="font-mincho surface-panel-text" style={{ color: 'rgba(143,216,255,0.85)' }}>
               深く潜りすぎた思考を、一度水面へ。<br/>ゆっくりと光の中へ浮上します。
             </p>
             <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>decompressing — {Math.round(progress * 100)}%</div>
@@ -1476,8 +1495,8 @@ export function FathomApp() {
         ) : null}
 
         {hasDescended && settled && sessionPhase === 'completed' && fathomMode !== 'sleep' ? (
-          <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', width: '100%' }}>
-            <p className="font-mincho" style={{ fontSize: '15px', lineHeight: '2.6', color: 'rgba(255,255,255,0.85)', marginBottom: 32 }}>
+          <div className="surface-panel">
+            <p className="font-mincho surface-panel-text" style={{ color: 'rgba(255,255,255,0.85)', marginBottom: 32 }}>
               {fathomMode === 'meditate' ? (
                 <>水面に到達しました。<br/>息を整え、次の深淵へ。</>
               ) : (
@@ -1526,9 +1545,12 @@ export function FathomApp() {
               <div className="font-mincho" style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>
                 {currentPortLabel ?? data?.city ?? ''}
               </div>
-              <div style={{ fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.12em', opacity: 0.6, marginBottom: 10 }}>
-                風 {windSpeed.toFixed(1)} m/s · {surfaceTemp.toFixed(1)}°C
-              </div>
+              {/* 取得できないときに初期値を「いまの天気」として見せない */}
+              {data?.temp != null ? (
+                <div style={{ fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.12em', opacity: 0.6, marginBottom: 10 }}>
+                  風 {data.windSpeed.toFixed(1)} m/s · {data.temp.toFixed(1)}°C
+                </div>
+              ) : null}
               {fathomMode === 'scheduled' ? (
                 <div className="font-mincho" style={{ fontSize: 12, color: '#8fd8ff', opacity: 0.85 }}>
                   {sessionPhase === 'interval'
@@ -1540,7 +1562,7 @@ export function FathomApp() {
 
             {sessionPhase === 'interval' ? (
               <div className={`hud-bottom-center ${visibilityClass(settled, 4)}`}>
-                <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.1em', marginBottom: 24 }} className="font-mincho">
+                <div style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.1em' }} className="font-mincho interval-hint">
                   （ 減圧中：画面を長押しして、深呼吸を ）
                 </div>
               </div>
