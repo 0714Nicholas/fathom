@@ -28,11 +28,12 @@ export function useFathomMemory(isActive: boolean, seed: string | null) {
     }
 
     const loadKarma = async () => {
-      const { data, error } = await supabase
+      // 新規ダイバーは行がまだ無いので、.single() だと 406 エラーになる
+      const { data } = await supabase
         .from('crystal_karma')
         .select('*')
         .eq('seed', seed)
-        .single()
+        .maybeSingle()
 
       if (data) {
         setDiveTimeMs(data.total_age_ms || 0)

@@ -116,26 +116,53 @@ const hudStyles = `
   .hud-bottom-center { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
   .hud-bottom-right { position: absolute; bottom: 40px; right: 32px; display: flex; flex-direction: column; align-items: flex-end; pointer-events: auto; }
 
+  /* 線とつまみの見た目は細いまま、指で触れる範囲だけ 44px に広げる */
   .beacon-slider {
     -webkit-appearance: none;
+    appearance: none;
     width: 100%;
-    height: 1px;
-    background: rgba(255, 255, 255, 0.15);
+    height: 44px;
+    background: linear-gradient(rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.15)) center / 100% 1px no-repeat;
     outline: none;
-    margin: 32px 0;
+    margin: 10px 0;
+    cursor: pointer;
   }
   .beacon-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 2px;
-    height: 20px;
+    box-sizing: border-box;
+    width: 44px;
+    height: 44px;
+    border: solid transparent;
+    border-width: 12px 21px;
     background: #fff;
+    background-clip: padding-box;
     cursor: pointer;
-    box-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
-    transition: background 0.3s, box-shadow 0.3s;
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5));
+    transition: background-color 0.3s, filter 0.3s;
   }
   .beacon-slider.locked::-webkit-slider-thumb {
-    background: #8fd8ff;
-    box-shadow: 0 0 12px rgba(143, 216, 255, 0.8);
+    background-color: #8fd8ff;
+    filter: drop-shadow(0 0 6px rgba(143, 216, 255, 0.8));
+  }
+  .beacon-slider::-moz-range-track {
+    background: transparent;
+  }
+  .beacon-slider::-moz-range-thumb {
+    box-sizing: border-box;
+    width: 44px;
+    height: 44px;
+    border: solid transparent;
+    border-width: 12px 21px;
+    border-radius: 0;
+    background: #fff;
+    background-clip: padding-box;
+    cursor: pointer;
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5));
+    transition: background-color 0.3s, filter 0.3s;
+  }
+  .beacon-slider.locked::-moz-range-thumb {
+    background-color: #8fd8ff;
+    filter: drop-shadow(0 0 6px rgba(143, 216, 255, 0.8));
   }
   .signal-text {
     font-family: monospace;
@@ -166,14 +193,44 @@ const hudStyles = `
     100% { transform: skew(0deg); }
   }
 
+  /* 入口の画面は「説明文 → 操作 → 下の余白」の順に縦へ並べる。
+     高さが足りないと下の余白から縮み、それでも足りなければスクロールするので重ならない */
+  .landing-stage {
+    --landing-gap-xs: 12px;
+    --landing-gap-s: 16px;
+    --landing-gap-m: 24px;
+    --landing-gap-l: 32px;
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 100vh; height: 100dvh;
+    z-index: 50;
+    display: flex; flex-direction: column; align-items: center;
+    padding-top: 72px;
+    overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
+    pointer-events: none;
+    transition: opacity 1s ease;
+  }
+  .landing-stage::-webkit-scrollbar { display: none; }
+  .landing-stage::after { content: ''; flex: 0 1 18vh; min-height: 16px; }
+  .landing-inner {
+    pointer-events: auto; display: flex; flex-direction: column; flex-shrink: 0;
+    align-items: center; width: 100%; padding: 0 32px; max-width: 460px;
+  }
+  /* 縦に並ぶ画面では枠を消す。横向きの短い画面でだけ左右の列になる */
+  .landing-col { display: contents; }
   .landing-intro {
-    position: absolute; top: 72px; left: 0; right: 0;
-    padding: 0 24px; text-align: center; pointer-events: none;
+    flex-shrink: 0; width: 100%; margin-bottom: auto;
+    padding: 0 24px 12px; text-align: center; pointer-events: none;
     color: rgba(255, 255, 255, 0.8); font-size: 14px; line-height: 2;
+    text-shadow: 0 0 8px rgba(2, 5, 10, 0.8);
   }
   .landing-intro p { margin: 0; }
   .landing-intro .phrase { display: inline-block; }
-  .landing-intro .landing-intro-sub { font-size: 11px; opacity: 0.6; letter-spacing: 0.08em; }
+  .landing-intro .landing-intro-sub { font-size: 11px; opacity: 0.8; letter-spacing: 0.08em; }
+
+  /* 入口の文字ボタン。雰囲気は保ちつつ、暗い背景で十分に読める濃さにする。
+     .hud-btn は潜航中の画面でも使うので、そちらの色は変えない */
+  .landing-link { color: rgba(255, 255, 255, 0.72); text-shadow: 0 0 6px rgba(2, 5, 10, 0.9); }
+  .landing-link-quiet { color: rgba(255, 255, 255, 0.58); text-shadow: 0 0 6px rgba(2, 5, 10, 0.9); }
 
   .scheduled-status {
     display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -184,7 +241,7 @@ const hudStyles = `
     color: rgba(255, 255, 255, 0.9);
   }
   .scheduled-count { font-size: 12px; letter-spacing: 0.1em; color: rgba(143, 216, 255, 0.8); }
-  /* 定時潜航の入口では、ボタンを下にずらさず文章の流れの中に置く */
+  /* 入口の画面では、ボタンを下にずらさず文章の流れの中に置く（ずらすと下のボタンに重なる） */
   .descend-beacon.in-flow { transform: none; }
   .descend-beacon.in-flow:hover { transform: translateY(-1px); }
   .descend-beacon.in-flow.is-leaving { transform: translateY(8px); }
@@ -224,33 +281,47 @@ const hudStyles = `
     font-family: monospace; font-size: 10px; letter-spacing: 0.2em;
     color: rgba(255, 255, 255, 0.4);
   }
+  /* 線とつまみの見た目は細いまま、触れる範囲だけ広げる。
+     マイナスの margin で配置を変えず、線の長さをつまみの幅ぶん余らせて移動幅も保つ */
   .volume-slider {
+    --volume-length: 96px;
     -webkit-appearance: none;
     appearance: none;
-    width: 96px;
-    height: 1px;
-    background: rgba(255, 255, 255, 0.2);
+    width: calc(var(--volume-length) + 24px);
+    height: 36px;
+    margin: -18px -12px;
+    background: linear-gradient(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.2)) center / var(--volume-length) 1px no-repeat;
     outline: none;
     cursor: pointer;
   }
   .volume-slider::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 2px;
-    height: 14px;
+    box-sizing: border-box;
+    width: 24px;
+    height: 36px;
+    border: 11px solid transparent;
     background: #8fd8ff;
-    box-shadow: 0 0 8px rgba(143, 216, 255, 0.6);
+    background-clip: padding-box;
+    filter: drop-shadow(0 0 4px rgba(143, 216, 255, 0.6));
+  }
+  .volume-slider::-moz-range-track {
+    background: transparent;
   }
   .volume-slider::-moz-range-thumb {
-    width: 2px;
-    height: 14px;
-    border: none;
+    box-sizing: border-box;
+    width: 24px;
+    height: 36px;
+    border: 11px solid transparent;
     border-radius: 0;
     background: #8fd8ff;
+    background-clip: padding-box;
+    filter: drop-shadow(0 0 4px rgba(143, 216, 255, 0.6));
   }
 
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
-    .landing-intro { top: 48px; font-size: 13px; }
+    .landing-stage { padding-top: 48px; }
+    .landing-intro { font-size: 13px; }
     .hud-top-left { top: 60px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
@@ -258,7 +329,31 @@ const hudStyles = `
     .hud-bottom-right { bottom: 130px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
     .hud-btn.hud-clock { padding: 0; font-size: 12px; }
-    .volume-slider { width: 72px; }
+    .volume-slider { --volume-length: 72px; }
+  }
+
+  /* 高さが足りない画面では、余白と文字を詰めて収める */
+  @media (max-height: 620px) {
+    .fathom-logo { top: 16px; }
+    .landing-stage {
+      --landing-gap-xs: 8px;
+      --landing-gap-s: 6px;
+      --landing-gap-m: 10px;
+      --landing-gap-l: 12px;
+      padding-top: 44px;
+    }
+    .landing-stage::after { min-height: 10px; }
+    .landing-intro { padding-bottom: 8px; font-size: 12px; line-height: 1.7; }
+    .beacon-slider { margin: 0; }
+    .scheduled-status { gap: 4px; margin: 12px 0 8px; }
+  }
+
+  /* 横向きの短い画面では、操作を左右の2列に分ける */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .landing-stage { padding-top: 36px; }
+    .landing-intro { padding-bottom: 6px; line-height: 1.5; }
+    .landing-inner { flex-direction: row; justify-content: center; gap: 40px; max-width: 760px; }
+    .landing-col { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 0; }
   }
 `
 
@@ -356,7 +451,7 @@ function ModeSelector({ current, onSelect }: { current: FathomMode, onSelect: (m
     { value: 'sleep', label: 'Sleep (60m)' },
   ]
   return (
-    <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: '400px' }}>
+    <div style={{ display: 'flex', gap: 'var(--landing-gap-xs)', marginBottom: 'var(--landing-gap-m)', flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: '400px' }}>
       {modes.map((m) => {
         const isActive = current === m.value
         return (
@@ -401,20 +496,6 @@ function LandingIntro({ sub }: { sub: string[] }) {
   )
 }
 
-const landingStageStyle = (isLeaving: boolean): React.CSSProperties => ({
-  position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-  zIndex: 50, display: 'flex', flexDirection: 'column',
-  justifyContent: 'flex-end', alignItems: 'center',
-  paddingBottom: '18vh',
-  pointerEvents: 'none',
-  opacity: isLeaving ? 0 : 1, transition: 'opacity 1s ease'
-})
-
-const landingInnerStyle: React.CSSProperties = {
-  pointerEvents: 'auto', display: 'flex', flexDirection: 'column',
-  alignItems: 'center', width: '100%', padding: '0 32px', maxWidth: '460px'
-}
-
 function diveCountLabel(phase: ScheduleState['phase'], others: number): string {
   if (phase === 'diving') return others > 0 ? `いま ${others}人が潜航中` : 'いまは貸し切りの海'
   return others > 0 ? `水面で ${others}人が待機中` : 'まだ誰もいない水面。最初のひとりに。'
@@ -435,69 +516,73 @@ function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, we
 }) {
   const isDiving = schedule.phase === 'diving'
   return (
-    <div aria-hidden={isLeaving} style={landingStageStyle(isLeaving)}>
+    <div aria-hidden={isLeaving} className="landing-stage" style={{ opacity: isLeaving ? 0 : 1 }}>
       <LandingIntro sub={['毎時 :00 と :30 に、', 'みんなで25分潜る集中タイマー。']} />
 
-      <div style={landingInnerStyle}>
-        <div className="signal-text locked" style={{ marginBottom: 8 }}>
-          [ {formatClockTime(schedule.diveStartsAt)} の定時潜航 ]
-        </div>
-        <div className="font-mincho" style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
-          {schedule.port.label}
-        </div>
-        <div style={{ fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.12em', opacity: 0.5, height: 14 }}>
-          {weather ? `wind ${weather.windSpeed.toFixed(1)} m/s · ${weather.temp.toFixed(1)}°C` : 'listening to the surface...'}
-        </div>
+      <div className="landing-inner">
+        <div className="landing-col">
+          <div className="signal-text locked" style={{ marginBottom: 8 }}>
+            [ {formatClockTime(schedule.diveStartsAt)} の定時潜航 ]
+          </div>
+          <div className="font-mincho" style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>
+            {schedule.port.label}
+          </div>
+          <div style={{ fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.12em', opacity: 0.65, height: 14 }}>
+            {weather ? `wind ${weather.windSpeed.toFixed(1)} m/s · ${weather.temp.toFixed(1)}°C` : 'listening to the surface...'}
+          </div>
 
-        <div className="scheduled-status">
-          <div className="scheduled-clock">
-            {isDiving ? `潜航中 ・ 残り ${formatClock(schedule.remainingInPhase)}` : `まもなく潜航 ・ あと ${formatClock(schedule.remainingInPhase)}`}
-          </div>
-          <div className="font-mincho scheduled-count">
-            {diveCountLabel(schedule.phase, isDiving ? othersDiving : othersWaiting)}
-          </div>
-          {weeklyDivers ? (
-            <div className="font-mincho" style={{ fontSize: 11, letterSpacing: '0.1em', opacity: 0.5 }}>
-              今週 {weeklyDivers}人が潜りました
+          <div className="scheduled-status">
+            <div className="scheduled-clock">
+              {isDiving ? `潜航中 ・ 残り ${formatClock(schedule.remainingInPhase)}` : `まもなく潜航 ・ あと ${formatClock(schedule.remainingInPhase)}`}
             </div>
-          ) : null}
+            <div className="font-mincho scheduled-count">
+              {diveCountLabel(schedule.phase, isDiving ? othersDiving : othersWaiting)}
+            </div>
+            {weeklyDivers ? (
+              <div className="font-mincho" style={{ fontSize: 11, letterSpacing: '0.1em', opacity: 0.65 }}>
+                今週 {weeklyDivers}人が潜りました
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        <button
-          type="button"
-          className={`descend-beacon in-flow ${isLeaving ? 'is-leaving' : ''}`}
-          onClick={onJoin}
-          disabled={isLeaving}
-          style={{ position: 'relative', margin: '8px 0' }}
-        >
-          <span className="descend-word">{isDiving ? 'join' : 'descend'}</span>
-        </button>
+        <div className="landing-col">
+          <button
+            type="button"
+            className={`descend-beacon in-flow ${isLeaving ? 'is-leaving' : ''}`}
+            onClick={onJoin}
+            disabled={isLeaving}
+            style={{ position: 'relative', margin: '8px 0' }}
+          >
+            <span className="descend-word">{isDiving ? 'join' : 'descend'}</span>
+          </button>
 
-        <div className="font-mincho" style={{ marginTop: 24, letterSpacing: '0.12em', fontSize: '11px', opacity: 0.5, textAlign: 'center' }}>
-          {isDiving ? '途中から合流して、残りの時間を一緒に潜る' : '水面で待って、時間になったら一緒に潜る'}
+          <div className="font-mincho" style={{ marginTop: 'var(--landing-gap-m)', letterSpacing: '0.12em', fontSize: '11px', opacity: 0.65, textAlign: 'center' }}>
+            {isDiving ? '途中から合流して、残りの時間を一緒に潜る' : '水面で待って、時間になったら一緒に潜る'}
+          </div>
+
+          <div style={{ marginTop: 'var(--landing-gap-s)' }}>{notifyToggle}</div>
+
+          <button
+            type="button"
+            className="hud-btn landing-link"
+            onClick={onSolo}
+            disabled={isLeaving}
+            style={{ marginTop: 'var(--landing-gap-l)', fontSize: 11, letterSpacing: '0.12em', textTransform: 'none' }}
+          >
+            <span className="font-mincho">ひとりで潜る（瞑想・睡眠・90分集中）</span>
+          </button>
+
+          <button
+            type="button"
+            className="hud-btn landing-link-quiet"
+            onClick={onOpenRestore}
+            disabled={isLeaving}
+            style={{ marginTop: 'var(--landing-gap-xs)', fontSize: 10, letterSpacing: '0.15em', textTransform: 'none' }}
+          >
+            I have been here before <span className="font-mincho">（かつての記憶へ帰還）</span>
+          </button>
         </div>
-
-        <div style={{ marginTop: 16 }}>{notifyToggle}</div>
-
-        <button
-          type="button"
-          className="hud-btn"
-          onClick={onSolo}
-          disabled={isLeaving}
-          style={{ marginTop: 32, opacity: 0.7, fontSize: 11, letterSpacing: '0.12em', textTransform: 'none' }}
-        >
-          <span className="font-mincho">ひとりで潜る（瞑想・睡眠・90分集中）</span>
-        </button>
-
-        <button
-          type="button"
-          className="hud-btn"
-          onClick={onOpenRestore}
-          disabled={isLeaving}
-          style={{ marginTop: 12, opacity: 0.5, fontSize: 10, letterSpacing: '0.15em', textTransform: 'none' }}
-        >
-          I have been here before <span className="font-mincho" style={{ opacity: 0.7 }}>（かつての記憶へ帰還）</span>
-        </button>
       </div>
     </div>
   )
@@ -559,9 +644,10 @@ function BeaconTuningStage({ onDescend, onOpenRestore, onBack, isLeaving, target
     if (dragTimeout.current) window.clearTimeout(dragTimeout.current)
     
     dragTimeout.current = window.setTimeout(() => {
+      dragTimeout.current = null
       setIsDragging(false)
-      onTuningChange(val, false) 
-      
+      onTuningChange(val, false)
+
       const port = PORTS[index]
       if (targetCity !== port.query) {
         onSearch(port.query)
@@ -569,69 +655,79 @@ function BeaconTuningStage({ onDescend, onOpenRestore, onBack, isLeaving, target
     }, 600)
   }
 
+  // 触れただけで値が変わらなかったときに、SEEKING のまま固まらないよう元に戻す
+  const handleDialRelease = () => {
+    if (dragTimeout.current === null) setIsDragging(false)
+  }
+
   const isTuning = isDragging || isLoading
   const currentPort = PORTS[Math.round((dialValue / 100) * (PORTS.length - 1))]
 
   return (
-    <div aria-hidden={isLeaving} style={landingStageStyle(isLeaving)}>
+    <div aria-hidden={isLeaving} className="landing-stage" style={{ opacity: isLeaving ? 0 : 1 }}>
       <LandingIntro sub={['ひとりで潜る ──', '海を選んで、自分のペースで。']} />
 
-      <div style={landingInnerStyle}>
+      <div className="landing-inner">
+        <div className="landing-col">
+          <div className={`signal-text ${!isTuning ? 'locked' : ''}`} style={{ marginBottom: 8 }}>
+            {isTuning ? `[ SEEKING... ${freqStr} MHz ]` : `[ SIGNAL ACQUIRED: ${currentPort.name} ]`}
+          </div>
 
-        <div className={`signal-text ${!isTuning ? 'locked' : ''}`} style={{ marginBottom: 8 }}>
-          {isTuning ? `[ SEEKING... ${freqStr} MHz ]` : `[ SIGNAL ACQUIRED: ${currentPort.name} ]`}
-        </div>
-        
-        <div className="font-mincho" style={{ fontSize: 11, opacity: isTuning ? 0 : 0.6, transition: 'opacity 0.4s ease', height: 16 }}>
-          {isTuning ? '' : currentPort.label}
-        </div>
+          <div className="font-mincho" style={{ fontSize: 11, opacity: isTuning ? 0 : 0.6, transition: 'opacity 0.4s ease', height: 16 }}>
+            {isTuning ? '' : currentPort.label}
+          </div>
 
-        <input
-          type="range"
-          min="0" max="100" step="0.1"
-          value={dialValue}
-          onChange={(e) => handleDialChange(parseFloat(e.target.value))}
-          onTouchStart={() => setIsDragging(true)}
-          className={`beacon-slider ${!isTuning ? 'locked' : ''}`}
-          aria-label="潜る海を選ぶダイヤル"
-          aria-valuetext={currentPort.label}
-        />
+          <input
+            type="range"
+            min="0" max="100" step="0.1"
+            value={dialValue}
+            onChange={(e) => handleDialChange(parseFloat(e.target.value))}
+            onTouchStart={() => setIsDragging(true)}
+            onTouchEnd={handleDialRelease}
+            onTouchCancel={handleDialRelease}
+            className={`beacon-slider ${!isTuning ? 'locked' : ''}`}
+            aria-label="潜る海を選ぶダイヤル"
+            aria-valuetext={currentPort.label}
+          />
 
-        <ModeSelector current={mode} onSelect={setMode} />
-
-        <button 
-          type="button" 
-          className={`descend-beacon ${isLeaving ? 'is-leaving' : ''}`} 
-          onClick={() => onDescend(mode)} 
-          disabled={isLeaving || isTuning}
-          style={{ position: 'relative', margin: '8px 0', opacity: isTuning ? 0.3 : 1, transition: 'opacity 0.3s' }} 
-        >
-          <span className="descend-word">descend</span>
-        </button>
-        
-        <div style={{ marginTop: 24, letterSpacing: '0.15em', fontSize: '10px', opacity: 0.4, fontFamily: 'monospace', textAlign: 'center' }}>
-          press to enter the deep
+          <ModeSelector current={mode} onSelect={setMode} />
         </div>
 
-        <button
-          type="button"
-          className="hud-btn"
-          onClick={onBack}
-          disabled={isLeaving}
-          style={{ marginTop: 32, opacity: 0.7, fontSize: 11, letterSpacing: '0.12em', textTransform: 'none' }}
-        >
-          <span className="font-mincho">← みんなで潜る（定時潜航）に戻る</span>
-        </button>
+        <div className="landing-col">
+          <button
+            type="button"
+            className={`descend-beacon in-flow ${isLeaving ? 'is-leaving' : ''}`}
+            onClick={() => onDescend(mode)}
+            disabled={isLeaving || isTuning}
+            style={{ position: 'relative', margin: '8px 0', opacity: isTuning ? 0.3 : 1, transition: 'opacity 0.3s' }}
+          >
+            <span className="descend-word">descend</span>
+          </button>
 
-        <button
-          type="button"
-          className="hud-btn"
-          onClick={onOpenRestore}
-          disabled={isLeaving}
-          style={{ marginTop: 12, opacity: 0.6, fontSize: 10, letterSpacing: '0.15em', textTransform: 'none' }}
-        >
-          I have been here before <span className="font-mincho" style={{ opacity: 0.7 }}>（かつての記憶へ帰還）</span>
-        </button>
+          <div style={{ marginTop: 'var(--landing-gap-m)', letterSpacing: '0.15em', fontSize: '10px', opacity: 0.6, fontFamily: 'monospace', textAlign: 'center' }}>
+            press to enter the deep
+          </div>
+
+          <button
+            type="button"
+            className="hud-btn landing-link"
+            onClick={onBack}
+            disabled={isLeaving}
+            style={{ marginTop: 'var(--landing-gap-l)', fontSize: 11, letterSpacing: '0.12em', textTransform: 'none' }}
+          >
+            <span className="font-mincho">← みんなで潜る（定時潜航）に戻る</span>
+          </button>
+
+          <button
+            type="button"
+            className="hud-btn landing-link-quiet"
+            onClick={onOpenRestore}
+            disabled={isLeaving}
+            style={{ marginTop: 'var(--landing-gap-xs)', fontSize: 10, letterSpacing: '0.15em', textTransform: 'none' }}
+          >
+            I have been here before <span className="font-mincho">（かつての記憶へ帰還）</span>
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -748,7 +844,7 @@ function NotifyToggle({ state, onEnable, onDisable }: {
   if (state === 'unsupported') return null
   if (state === 'blocked') {
     return (
-      <div className="font-mincho" style={{ fontSize: 10, opacity: 0.4, letterSpacing: '0.08em' }}>
+      <div className="font-mincho" style={{ fontSize: 10, opacity: 0.62, letterSpacing: '0.08em' }}>
         通知はブラウザの設定でオフになっています
       </div>
     )
@@ -756,10 +852,10 @@ function NotifyToggle({ state, onEnable, onDisable }: {
   return (
     <button
       type="button"
-      className="hud-btn"
+      className={`hud-btn ${state === 'on' ? 'landing-link' : 'landing-link-quiet'}`}
       onClick={state === 'on' ? onDisable : onEnable}
       aria-pressed={state === 'on'}
-      style={{ textTransform: 'none', letterSpacing: '0.1em', fontSize: 11, opacity: state === 'on' ? 0.9 : 0.6 }}
+      style={{ textTransform: 'none', letterSpacing: '0.1em', fontSize: 11 }}
     >
       <span className="font-mincho">
         {state === 'on' ? '[ 潜航の通知：オン ]' : '[ 潜航の開始を通知する ]'}
