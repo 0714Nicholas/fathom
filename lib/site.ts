@@ -3,9 +3,10 @@ import { PORTS } from '@/lib/scene/ports'
 // 独自ドメインに移したら Vercel の環境変数 NEXT_PUBLIC_SITE_URL を設定する
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://fathom-sandy.vercel.app').replace(/\/$/, '')
 
-export const SITE_NAME = 'Fathom'
+// サービス名は Minasoko（みなそこ）。コード内の Fathom は旧名で、保存キーは既存の座標を消さないよう変えていない
+export const SITE_NAME = 'Minasoko'
 
-export const SITE_TITLE = 'Fathom — 世界の果ての海に、みんなで潜る集中タイマー'
+export const SITE_TITLE = 'Minasoko（みなそこ）— 世界の果ての海に、みんなで潜る集中タイマー'
 
 export const SITE_TAGLINE = '世界の果ての「いま」の天気が、深海の景色と音を変える。'
 

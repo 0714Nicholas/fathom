@@ -42,7 +42,7 @@ export default async function OpengraphImage() {
         />
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={{ fontSize: 26, letterSpacing: '0.6em', color: 'rgba(255, 255, 255, 0.6)' }}>
-            F A T H O M
+            M I N A S O K O
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', marginTop: 36, fontSize: 54, lineHeight: 1.45 }}>
             <span>世界の果ての「いま」が、</span>

@@ -39,12 +39,14 @@ const modalStyles = `
   }
 `
 
-export function RestoreMemoryModal({ 
-  onClose, 
-  onRestore 
-}: { 
-  onClose: () => void, 
-  onRestore: (seed: string) => Promise<boolean> 
+export function RestoreMemoryModal({
+  onClose,
+  onRestore,
+  currentSeed,
+}: {
+  onClose: () => void,
+  onRestore: (seed: string) => Promise<boolean>,
+  currentSeed: string | null,
 }) {
   const [inputVal, setInputVal] = useState('')
   const [error, setError] = useState(false)
@@ -104,6 +106,13 @@ export function RestoreMemoryModal({
             </button>
           </div>
         </form>
+
+        {currentSeed ? (
+          <div className="font-mincho" style={{ marginTop: 32, fontSize: 11, opacity: 0.7, letterSpacing: '0.08em', textAlign: 'center', lineHeight: 2 }}>
+            いまの座標：{currentSeed.replace(/-/g, ' ')}<br />
+            別の端末では、この座標で同じ海に戻れます。
+          </div>
+        ) : null}
       </div>
     </div>
   )

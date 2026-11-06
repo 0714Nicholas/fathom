@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { pauseBackgroundPlayback, restoreBackgroundPlayback, startBackgroundPlayback } from '@/lib/audio/backgroundPlayback'
 
 export const DEFAULT_MASTER_VOLUME = 0.8
 
@@ -122,7 +123,14 @@ export function useDeepSeaAudio(opts: {
 
   const ctxRef = useRef<AudioContext | null>(null)
   const [running, setRunning] = useState(false)
-  
+  // ユーザーが再生を望んでいるか（画面に戻ったときに再開してよいかの判断に使う）
+  const wantsPlaybackRef = useRef(false)
+  // ロック画面のボタンから、最新の resume / suspend を呼ぶために持っておく
+  const playbackControlsRef = useRef({
+    resume: async () => {},
+    suspend: async () => {},
+  })
+
   const masterGainRef = useRef<GainNode | null>(null)
   const volumeRef = useRef(DEFAULT_MASTER_VOLUME)
   const reverbRef = useRef<ConvolverNode | null>(null)
@@ -336,17 +344,43 @@ export function useDeepSeaAudio(opts: {
   }, [])
 
   const resume = useCallback(async () => {
+    wantsPlaybackRef.current = true
+    startBackgroundPlayback({
+      onPlay: () => { void playbackControlsRef.current.resume() },
+      onPause: () => { void playbackControlsRef.current.suspend() },
+    })
     if (!ctxRef.current) initAudio()
-    if (ctxRef.current?.state === 'suspended') await ctxRef.current.resume()
+    // ロック画面からの再開では resume() が返ってこないことがあるので、状態を先に更新する
     setRunning(true)
+    const ctx = ctxRef.current
+    if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') await ctx.resume()
   }, [initAudio])
 
   const suspend = useCallback(async () => {
-    if (ctxRef.current?.state === 'running') await ctxRef.current.suspend()
+    wantsPlaybackRef.current = false
+    pauseBackgroundPlayback()
     setRunning(false)
+    if (ctxRef.current?.state === 'running') await ctxRef.current.suspend()
   }, [])
 
+  playbackControlsRef.current = { resume, suspend }
+
   const start = resume
+
+  // iPhone では画面オフや電話で音が中断され、状態が interrupted になることがある。
+  // 非表示のまま resume() を呼ぶと返ってこないので、画面に戻ったときに再開する
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible' || !wantsPlaybackRef.current) return
+      restoreBackgroundPlayback()
+      const ctx = ctxRef.current
+      if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') {
+        ctx.resume().catch(() => { /* 次の操作で再開できる */ })
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
 
   // 0..1。AudioContext 生成前に呼ばれても次の initAudio で反映される
   const setVolume = useCallback((value: number) => {
