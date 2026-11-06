@@ -51,7 +51,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
       capable: true,
-      title: 'FATHOM',
+      title: 'MINASOKO',
       statusBarStyle: 'black-translucent', // ステータスバーを透明・黒背景にする
   },
     formatDetection: {

@@ -28,7 +28,7 @@ export function diveShareText(info: DiveCardInfo): string {
   const weather = info.weather ? `（風 ${info.weather.windSpeed.toFixed(1)}m/s・${Math.round(info.weather.temp)}°C）` : ''
   const who = info.companions > 1 ? `${info.companions}人で` : ''
   const sunk = info.sunk ? `もやもやを${info.sunk}つ沈めてきた。` : ''
-  return `${info.modeLabel}で${who}「${place}」の海に${info.minutes}分潜った${weather}。${sunk} #Fathom`
+  return `${info.modeLabel}で${who}「${place}」の海に${info.minutes}分潜った${weather}。${sunk} #Minasoko`
 }
 
 // SNS 向けの縦長カード（1080×1350）を描く
@@ -72,7 +72,7 @@ async function drawCard(info: DiveCardInfo): Promise<HTMLCanvasElement> {
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.55)'
   ctx.font = '300 34px monospace'
-  ctx.fillText('F A T H O M', cx, 130)
+  ctx.fillText('M I N A S O K O', cx, 130)
 
   const [area, place] = info.portLabel.includes(' / ') ? info.portLabel.split(' / ') : ['', info.portLabel]
   if (area) {

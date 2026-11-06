@@ -17,7 +17,7 @@ const rows = (): [string, string][] => [
   ['商品代金以外の必要料金', 'なし（インターネット接続にかかる通信料はお客様のご負担です）'],
   ['支払方法', 'クレジットカードなど、Stripe が提供する決済方法'],
   ['支払時期', 'ご購入時にお支払いが確定します'],
-  ['提供時期', '決済完了後ただちに（Fathom の運営を応援するデジタルの応援購入です）'],
+  ['提供時期', '決済完了後ただちに（Minasoko の運営を応援するデジタルの応援購入です）'],
   ['返品・キャンセル', '性質上、購入後の返品・返金はお受けしておりません'],
   ['動作環境', '最新版の Chrome・Safari・Edge・Firefox'],
 ]
@@ -38,7 +38,7 @@ export default function LegalPage() {
           ))}
         </dl>
         <p style={{ marginTop: 48, fontSize: 13 }}>
-          <a href="/" style={{ color: '#8fd8ff' }}>← Fathom に戻る</a>
+          <a href="/" style={{ color: '#8fd8ff' }}>← Minasoko に戻る</a>
         </p>
       </div>
     </main>

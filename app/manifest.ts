@@ -4,8 +4,8 @@ import { SITE_DESCRIPTION } from '@/lib/site'
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: '/',
-    name: 'Fathom — みんなで潜る集中タイマー',
-    short_name: 'FATHOM',
+    name: 'Minasoko — みんなで潜る集中タイマー',
+    short_name: 'MINASOKO',
     description: SITE_DESCRIPTION,
     lang: 'ja',
     start_url: '/',
