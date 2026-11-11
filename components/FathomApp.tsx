@@ -27,6 +27,9 @@ import { useDiveSchedule } from '@/hooks/useDiveSchedule'
 import { useDiveLog } from '@/hooks/useDiveLog'
 import { useDiveStats } from '@/hooks/useDiveStats'
 import { useDiveNotifications, type NotificationState } from '@/hooks/useDiveNotifications'
+import { useOpenedFromPush, usePushReminder } from '@/hooks/usePushReminder'
+import { ReminderControl } from '@/components/ReminderControl'
+import { PUSH_PUBLIC_KEY, localMinuteOfDay } from '@/lib/push/shared'
 import { shareDiveCard, xShareUrl, type DiveCardInfo } from '@/lib/share/diveCard'
 import { TIP_ENABLED, TIP_URL } from '@/lib/legal'
 import { releaseThoughts, saveThought, type SunkThought } from '@/lib/thoughts'
@@ -263,6 +266,18 @@ const hudStyles = `
   .surface-panel.is-lower { top: 42%; }
   .surface-panel-text { font-size: 15px; line-height: 2.6; }
   .interval-hint { margin-bottom: 24px; }
+
+  /* 毎日の潜航通知の設定 */
+  .reminder { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .reminder .hud-btn { text-transform: none; letter-spacing: 0.1em; font-size: 11px; }
+  .reminder .reminder-sub { font-size: 10px; }
+  .reminder-picker { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .reminder-picker .hud-btn { min-width: 32px; min-height: 32px; font-size: 14px; }
+  .reminder-time { font-family: monospace; font-size: 13px; letter-spacing: 0.1em; color: rgba(255, 255, 255, 0.85); }
+  .reminder-status { font-size: 11px; letter-spacing: 0.08em; color: rgba(143, 216, 255, 0.85); }
+  .reminder-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .reminder-note { font-size: 10px; opacity: 0.62; letter-spacing: 0.08em; text-align: center; line-height: 1.8; }
+  .reminder-message { font-size: 10px; opacity: 0.7; letter-spacing: 0.06em; text-align: center; max-width: 280px; line-height: 1.7; }
 
   .hud-clock {
     display: block; padding: 0; margin-bottom: 8px;
@@ -1126,11 +1141,13 @@ export function FathomApp() {
   useEffect(() => {
     if (audio.running) setNowPlaying(currentPortLabel ?? SITE_NAME)
   }, [audio.running, currentPortLabel])
+  const openedFromPush = useOpenedFromPush()
   useDiveLog(hasDescended && settled && sessionPhase === 'diving', {
     seed: selfId,
     mode: fathomMode,
     port: currentPortName,
     slotStart: fathomMode === 'scheduled' ? schedule.diveStartsAt : null,
+    source: openedFromPush ? 'push' : null,
   })
   const diveStats = useDiveStats(beaconMounted && landingView === 'scheduled')
 
@@ -1239,10 +1256,21 @@ export function FathomApp() {
   // タブが裏にあるとき用の通知。定時潜航に参加している人にだけ、時刻の節目で出す
   const notifications = useDiveNotifications()
   const { notify } = notifications
-  const notifyToggle = (
+  // 毎日の潜航通知。オンにすると、タブが裏にあるときの通知も一緒にオンになる
+  const reminder = usePushReminder({ seed: selfId, onEnabled: notifications.enable, onDisabled: notifications.disable })
+  const joinedScheduled = fathomMode === 'scheduled' && (hasDescended || scheduledWaiting)
+  // 浮上中は「いま潜り終えた時刻」、それ以外は「これから潜る時刻」を勧める
+  const reminderSuggestion = localMinuteOfDay(
+    sessionPhase === 'interval' && joinedScheduled
+      ? schedule.diveStartsAt - (SCHEDULED_DIVE_MS + SCHEDULED_BREAK_MS)
+      : schedule.diveStartsAt,
+  )
+  // 鍵が未設定のあいだは、今までのタブ内の通知だけを出す
+  const notifyToggle = PUSH_PUBLIC_KEY ? (
+    <ReminderControl reminder={reminder} suggestedMinute={reminderSuggestion} />
+  ) : (
     <NotifyToggle state={notifications.state} onEnable={() => void notifications.enable()} onDisable={notifications.disable} />
   )
-  const joinedScheduled = fathomMode === 'scheduled' && (hasDescended || scheduledWaiting)
   const prevScheduleRef = useRef(schedule)
   useEffect(() => {
     const prev = prevScheduleRef.current
