@@ -77,14 +77,35 @@ async function networkFirstPage(request) {
   }
 }
 
-// 「潜航開始」などの通知を押したら、開いている Fathom のタブを前に出す
+// 毎日の潜航の通知（サーバーから届くプッシュ）。中身は /api/push/send が作る
+self.addEventListener('push', (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch {
+    data = { body: event.data ? event.data.text() : '' }
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Minasoko', {
+      body: data.body || '',
+      tag: data.tag || 'minasoko-reminder',
+      icon: '/icon-192x192.png',
+      badge: '/icon-192x192.png',
+      data: { url: data.url || '/' },
+    })
+  )
+})
+
+// 通知を押したら、開いている Minasoko のタブを前に出す（潜航中の画面を壊さないよう移動はしない）。
+// 開いていなければ、通知に入っている URL で開く
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
+  const url = (event.notification.data && event.notification.data.url) || '/'
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((client) => new URL(client.url).origin === self.location.origin)
       if (existing) return existing.focus()
-      return self.clients.openWindow('/')
+      return self.clients.openWindow(url)
     })
   )
 })

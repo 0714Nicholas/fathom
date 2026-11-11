@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid json' }, { status: 400 })
   }
 
-  const { id, seed, mode, port, slotStart, startedAt, durationMs, completed } = body
+  const { id, seed, mode, port, slotStart, startedAt, durationMs, completed, source } = body
   const startedAtMs = typeof startedAt === 'number' ? startedAt : NaN
   const valid =
     typeof id === 'string' && UUID_RE.test(id) &&
@@ -27,14 +27,15 @@ export async function POST(req: NextRequest) {
     (slotStart == null || typeof slotStart === 'number') &&
     Number.isFinite(startedAtMs) && Math.abs(Date.now() - startedAtMs) < 4 * 60 * 60 * 1000 &&
     typeof durationMs === 'number' && durationMs >= 0 && durationMs <= MAX_DURATION_MS &&
-    typeof completed === 'boolean'
+    typeof completed === 'boolean' &&
+    (source == null || source === 'push')
 
   if (!valid) return NextResponse.json({ error: 'invalid payload' }, { status: 400 })
 
   const supabase = getServerSupabase()
   if (!supabase) return NextResponse.json({ ok: false, reason: 'supabase not configured' }, { status: 202 })
 
-  const { error } = await supabase.from('dive_logs').insert({
+  const row = {
     id,
     seed,
     mode,
@@ -43,7 +44,14 @@ export async function POST(req: NextRequest) {
     started_at: new Date(startedAtMs).toISOString(),
     duration_ms: Math.round(durationMs as number),
     completed,
-  })
+  }
+  const rowWithSource: Record<string, unknown> = source === 'push' ? { ...row, source } : row
+  let { error } = await supabase.from('dive_logs').insert(rowWithSource)
+
+  // source 列を追加する SQL がまだのときも、潜航の記録そのものは失わない
+  if (error && source === 'push' && (error.code === 'PGRST204' || error.code === '42703')) {
+    ;({ error } = await supabase.from('dive_logs').insert(row))
+  }
 
   // 同じ id の二重送信は成功扱いでよい
   if (error && error.code !== '23505') {

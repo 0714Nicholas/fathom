@@ -7,6 +7,8 @@ type DiveLogContext = {
   mode: string
   port: string | null
   slotStart: number | null
+  // 'push' = 毎日の潜航通知から開いた
+  source?: 'push' | null
 }
 
 type OpenDive = DiveLogContext & { id: string, startedAt: number }
@@ -29,6 +31,7 @@ function send(dive: OpenDive, completed: boolean) {
     mode: dive.mode,
     port: dive.port,
     slotStart: dive.slotStart,
+    source: dive.source ?? null,
     startedAt: dive.startedAt,
     durationMs,
     completed,
