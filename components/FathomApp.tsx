@@ -1099,16 +1099,16 @@ export function FathomApp() {
     if (announcedPhaseRef.current === sessionPhase) return
     announcedPhaseRef.current = sessionPhase
     if (sessionPhase === 'interval') {
-      audio.triggerFrictionImpulse({ intensity: 0.6, durationMs: 300, color: 0.1 })
+      audio.triggerSurfacing()
       triggerResonance(0.8)
       if (fathomMode === 'scheduled') setLastDiveCount(maxDiversRef.current)
     } else if (sessionPhase === 'diving' && fathomMode === 'scheduled') {
       // 次の定時潜航が始まった合図（全員同時に鳴る）
       maxDiversRef.current = 1
-      audio.triggerFrictionImpulse({ intensity: 0.5, durationMs: 400, color: 0.3 })
+      audio.triggerSubmerge()
       triggerResonance(0.5)
     } else if (sessionPhase === 'completed' && fathomMode !== 'sleep') {
-      audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 500, color: 0.5 })
+      audio.triggerSurfacing()
       triggerResonance(0.4)
     }
   }, [sessionPhase, audio, triggerResonance, fathomMode])
@@ -1119,7 +1119,7 @@ export function FathomApp() {
     setSessionPhase('diving')
     setElapsedMs(0)
     setProgress(0.18)
-    audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 150, color: 0.8 })
+    audio.triggerSubmerge()
     triggerResonance(0.3)
   }, [audio, triggerResonance])
 
@@ -1366,7 +1366,7 @@ export function FathomApp() {
     setScheduledWaiting(false)
     setHasDescended(true)
     beginDescent()
-    audio.triggerFrictionImpulse({ intensity: 0.5, durationMs: 400, color: 0.3 })
+    audio.triggerSubmerge()
     triggerResonance(0.5)
   }, [audio, beginDescent, schedule.phase, scheduledWaiting, triggerResonance])
 

@@ -73,6 +73,57 @@ function createPinkNoiseBuffer(ctx: AudioContext, duration: number = 5.0) {
   return buffer
 }
 
+// 水面を抜ける・水に入るときの「ざっ」という水の音。左右で中身の違うノイズにして、顔のまわりに広がるようにする
+function waterSwash(ctx: AudioContext, dest: AudioNode, at: number, opts: { from: number, to: number, peak: number, rise: number, length: number }) {
+  const length = Math.floor(ctx.sampleRate * opts.length)
+  const buffer = ctx.createBuffer(2, length, ctx.sampleRate)
+  for (let c = 0; c < 2; c++) {
+    const data = buffer.getChannelData(c)
+    for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1
+  }
+  const src = ctx.createBufferSource()
+  src.buffer = buffer
+  const filter = ctx.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.Q.value = 0.7
+  filter.frequency.setValueAtTime(opts.from, at)
+  filter.frequency.exponentialRampToValueAtTime(opts.to, at + opts.length * 0.6)
+  const gain = ctx.createGain()
+  gain.gain.setValueAtTime(0, at)
+  gain.gain.linearRampToValueAtTime(opts.peak, at + opts.rise)
+  gain.gain.setTargetAtTime(0, at + opts.rise, (opts.length - opts.rise) / 4)
+  src.connect(filter).connect(gain).connect(dest)
+  src.start(at)
+  src.stop(at + opts.length)
+  src.onended = () => gain.disconnect()
+}
+
+// 鉢を鳴らしたような、澄んで長く残る音。倍音は鉢に近い整数でない比にし、
+// それぞれに少しだけ高さのずれた音を重ねて、ゆっくりうなるようにする。
+// partials は [基音に対する比, 大きさ, 消えるまでの秒数]。最後の音が止まる時刻を返す
+function ringBowl(ctx: AudioContext, dest: AudioNode, at: number, f0: number, partials: [number, number, number][]): number {
+  let lastStop = at
+  for (const [ratio, peak, decay] of partials) {
+    const freq = f0 * ratio
+    for (const [detune, weight] of [[0, 0.7], [0.8 * Math.sqrt(ratio), 0.3]] as const) {
+      const osc = ctx.createOscillator()
+      osc.type = 'sine'
+      osc.frequency.value = freq + detune
+      const gain = ctx.createGain()
+      // 柔らかいばちで叩いたように、ごく短く立ち上げる（いきなり立ち上げるとプチッと鳴る）
+      gain.gain.setValueAtTime(0, at)
+      gain.gain.linearRampToValueAtTime(peak * weight, at + 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + decay)
+      osc.connect(gain).connect(dest)
+      osc.start(at)
+      osc.stop(at + decay + 0.1)
+      osc.onended = () => gain.disconnect()
+    }
+    lastStop = Math.max(lastStop, at + decay + 0.1)
+  }
+  return lastStop
+}
+
 export function useDeepSeaAudio(opts: {
   enabled: boolean,
   progress: number,
@@ -825,26 +876,91 @@ export function useDeepSeaAudio(opts: {
   }, [running, graphId])
 
   // --- Interactions ---
-  const triggerFrictionImpulse = useCallback((payload: { intensity: number, durationMs: number, color: number }) => {
-    if (!ctxRef.current || !masterGainRef.current || !reverbRef.current) return
+
+  // 浮上の音：こもった水の音がざっと明るく開き、顔のまわりから水がしたたって、澄んだ鉢の音が長く残る
+  const triggerSurfacing = useCallback(() => {
     const ctx = ctxRef.current
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    
-    osc.type = 'triangle' 
-    osc.frequency.setValueAtTime(300 + payload.color * 400, ctx.currentTime)
-    osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + payload.durationMs / 1000)
-    
-    gain.gain.setValueAtTime(0, ctx.currentTime)
-    gain.gain.linearRampToValueAtTime(payload.intensity * 0.3, ctx.currentTime + 0.05)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + payload.durationMs / 1000)
-    
-    osc.connect(gain)
-    gain.connect(masterGainRef.current)
-    gain.connect(reverbRef.current) 
-    
-    osc.start()
-    osc.stop(ctx.currentTime + payload.durationMs / 1000 + 0.1)
+    const master = masterGainRef.current
+    const reverb = reverbRef.current
+    if (!ctx || !master || !reverb) return
+    const now = ctx.currentTime
+    // 気温で決まる和音の根音に合わせる（ずっと鳴っている和音と濁らないように）
+    const root = toneOscsRef.current[0]?.frequency.value ?? 130
+
+    waterSwash(ctx, master, now, { from: 300, to: 3200, peak: 0.09, rise: 0.35, length: 1.8 })
+
+    const dropBuffer = dropBufferRef.current
+    if (dropBuffer) {
+      for (let i = 0; i < 7; i++) {
+        const t = now + 0.3 + Math.random() * 1.6
+        const src = ctx.createBufferSource()
+        src.buffer = dropBuffer
+        src.playbackRate.value = 0.8 + Math.random() * 0.6
+        const filter = ctx.createBiquadFilter()
+        filter.type = 'bandpass'
+        filter.frequency.value = 1200 + Math.random() * 2000
+        filter.Q.value = 2
+        const gain = ctx.createGain()
+        gain.gain.value = 0.025 + Math.random() * 0.02
+        const panner: AudioNode = spatialActiveRef.current
+          ? createSpacePanner(ctx, { x: (Math.random() * 2 - 1) * 0.8, y: 0.3 + Math.random() * 0.7, z: (Math.random() * 2 - 1) * 0.6 })
+          : (() => { const p = ctx.createStereoPanner(); p.pan.value = Math.random() * 1.6 - 0.8; return p })()
+        src.connect(filter).connect(gain).connect(panner).connect(master)
+        src.start(t)
+        src.onended = () => { gain.disconnect(); panner.disconnect() }
+      }
+    }
+
+    // 少し遅れて、前の少し上（水面の上の空）で鉢が鳴る
+    const bowlOut = ctx.createGain()
+    if (spatialActiveRef.current) bowlOut.connect(createSpacePanner(ctx, { x: 0, y: 1.5, z: -2.5 })).connect(master)
+    else bowlOut.connect(master)
+    const send = ctx.createGain()
+    send.gain.value = 0.45
+    bowlOut.connect(send).connect(reverb)
+    const end = ringBowl(ctx, bowlOut, now + 0.6, root * 3, [
+      [1, 0.06, 7.0],
+      [2.76, 0.022, 4.0],
+      [5.4, 0.009, 2.2],
+      [8.93, 0.004, 1.2],
+    ])
+    window.setTimeout(() => { bowlOut.disconnect(); send.disconnect() }, (end - now + 1) * 1000)
+  }, [])
+
+  // 潜る合図：水に入る「とぷん」。明るい水の音が頭の上で閉じ、こもった低い鉢の音が下へ沈んでいく
+  const triggerSubmerge = useCallback(() => {
+    const ctx = ctxRef.current
+    const master = masterGainRef.current
+    const reverb = reverbRef.current
+    if (!ctx || !master || !reverb) return
+    const now = ctx.currentTime
+    const root = toneOscsRef.current[0]?.frequency.value ?? 130
+
+    waterSwash(ctx, master, now, { from: 2200, to: 220, peak: 0.08, rise: 0.06, length: 1.4 })
+
+    // 水の中で聞く音なので、高いところを落としてこもらせる
+    const bowlOut = ctx.createGain()
+    const muffle = ctx.createBiquadFilter()
+    muffle.type = 'lowpass'
+    muffle.frequency.value = 900
+    bowlOut.connect(muffle)
+    if (spatialActiveRef.current) {
+      const from = { x: 0, y: -0.5, z: -2 }
+      const panner = createSpacePanner(ctx, from)
+      glide(panner, from, { x: 0, y: -6, z: -3 }, now, 3.0)
+      muffle.connect(panner).connect(master)
+    } else {
+      muffle.connect(master)
+    }
+    const send = ctx.createGain()
+    send.gain.value = 0.6
+    muffle.connect(send).connect(reverb)
+    const end = ringBowl(ctx, bowlOut, now + 0.15, root * 1.5, [
+      [1, 0.06, 4.5],
+      [2.76, 0.018, 2.2],
+      [5.4, 0.006, 1.2],
+    ])
+    window.setTimeout(() => { bowlOut.disconnect(); muffle.disconnect(); send.disconnect() }, (end - now + 1) * 1000)
   }, [])
 
   const triggerSpatialResonance = useCallback((peerSeed: string, peerDepth: number, energy: number) => {
@@ -1052,7 +1168,8 @@ export function useDeepSeaAudio(opts: {
     suspend,
     setVolume,
     applySpatial,
-    triggerFrictionImpulse,
+    triggerSurfacing,
+    triggerSubmerge,
     triggerSpatialResonance,
     triggerOverloadSonar, // 追加
     triggerIceBreak,
