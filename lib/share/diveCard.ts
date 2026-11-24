@@ -6,7 +6,7 @@ export type DiveCardInfo = {
   modeLabel: string      // 例：'定時潜航'、'Focus'
   portLabel: string      // 例：'世界一孤立した島 / トリスタン・ダ・クーニャ'
   portName: string       // 例：'Tristan da Cunha'
-  weather: { windSpeed: number, temp: number } | null
+  weather: { windSpeed: number, temp: number, word?: string | null } | null
   companions: number     // 自分を含む人数
   sunk?: number          // 潜航中に沈めたもやもやの数（中身は載せない）
 }
@@ -25,7 +25,8 @@ function companionsLine(n: number): string {
 
 export function diveShareText(info: DiveCardInfo): string {
   const place = info.portLabel.split(' / ').pop() ?? info.portName
-  const weather = info.weather ? `（風 ${info.weather.windSpeed.toFixed(1)}m/s・${Math.round(info.weather.temp)}°C）` : ''
+  const word = info.weather?.word ? `${info.weather.word}・` : ''
+  const weather = info.weather ? `（${word}風 ${info.weather.windSpeed.toFixed(1)}m/s・${Math.round(info.weather.temp)}°C）` : ''
   const who = info.companions > 1 ? `${info.companions}人で` : ''
   const sunk = info.sunk ? `もやもやを${info.sunk}つ沈めてきた。` : ''
   return `${info.modeLabel}で${who}「${place}」の海に${info.minutes}分潜った${weather}。${sunk} #Minasoko`

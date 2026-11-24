@@ -8,6 +8,7 @@ import {
   type ResonancePulsePayload,
 } from '@/hooks/useRealtimeLetters'
 import { useWeather } from '@/hooks/useWeather'
+import { seaCondition, shortPlaceName } from '@/lib/weather/seaCondition'
 import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
 import { useFathomDescent } from '@/hooks/useFathomDescent'
 import { useFathomMemory } from '@/hooks/useFathomMemory'
@@ -47,7 +48,6 @@ const FOCUS_MS = 90 * 60 * 1000
 const SLEEP_MS = 60 * 60 * 1000
 
 const CLOCK_PREF_KEY = 'fathom:show-clock'
-const VOLUME_PREF_KEY = 'fathom:volume'
 
 function remainingSessionMs(mode: FathomMode, elapsedMs: number): number {
   if (mode === 'scheduled') return getScheduleState().remainingInPhase
@@ -264,7 +264,7 @@ const hudStyles = `
     text-align: center; width: 100%;
   }
   .surface-panel.is-lower { top: 42%; }
-  .surface-panel-text { font-size: 15px; line-height: 2.6; }
+  .surface-panel-text { font-size: 15px; line-height: 2.6; text-wrap: balance; }
   .interval-hint { margin-bottom: 24px; }
 
   /* 毎日の潜航通知の設定 */
@@ -285,59 +285,22 @@ const hudStyles = `
     color: rgba(255, 255, 255, 0.85);
   }
 
-  .volume-control {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
-    font-family: monospace; font-size: 10px; letter-spacing: 0.2em;
-    color: rgba(255, 255, 255, 0.4);
-  }
-  /* 線とつまみの見た目は細いまま、触れる範囲だけ広げる。
-     マイナスの margin で配置を変えず、線の長さをつまみの幅ぶん余らせて移動幅も保つ */
-  .volume-slider {
-    --volume-length: 96px;
-    -webkit-appearance: none;
-    appearance: none;
-    width: calc(var(--volume-length) + 24px);
-    height: 36px;
-    margin: -18px -12px;
-    background: linear-gradient(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.2)) center / var(--volume-length) 1px no-repeat;
-    outline: none;
-    cursor: pointer;
-  }
-  .volume-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    box-sizing: border-box;
-    width: 24px;
-    height: 36px;
-    border: 11px solid transparent;
-    background: #8fd8ff;
-    background-clip: padding-box;
-    filter: drop-shadow(0 0 4px rgba(143, 216, 255, 0.6));
-  }
-  .volume-slider::-moz-range-track {
-    background: transparent;
-  }
-  .volume-slider::-moz-range-thumb {
-    box-sizing: border-box;
-    width: 24px;
-    height: 36px;
-    border: 11px solid transparent;
-    border-radius: 0;
-    background: #8fd8ff;
-    background-clip: padding-box;
-    filter: drop-shadow(0 0 4px rgba(143, 216, 255, 0.6));
-  }
+  .mute-control { display: flex; align-items: center; margin-bottom: 12px; }
+
+  /* 天気の数字の前に置く「いまの海」のひとこと（吹雪・凪など） */
+  .sea-word { font-size: 11px; color: rgba(235, 245, 252, 1); margin-right: 0.9em; }
 
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
     .landing-stage { padding-top: 48px; }
     .landing-intro { font-size: 13px; }
-    .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
+    .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 70vw; }
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
     .hud-bottom-right { bottom: 130px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
     .hud-btn.hud-clock { padding: 0; font-size: 12px; }
-    .volume-slider { --volume-length: 72px; }
+    .sink-input { width: 100%; max-width: 420px; }
   }
 
   /* 高さが足りない画面では、余白と文字を詰めて収める */
@@ -372,6 +335,11 @@ const hudStyles = `
     .surface-panel, .surface-panel.is-lower { top: 52%; }
     .surface-panel-text { font-size: 13px; line-height: 1.8; }
     .interval-hint { margin-bottom: 2px; }
+  }
+
+  /* スマホ・タブレット：入力欄の文字が 16px 未満だと、iPhone が入力のたびに画面を拡大して戻さない */
+  @media (pointer: coarse) {
+    .sink-input { font-size: 16px; letter-spacing: 0.02em; }
   }
 `
 
@@ -474,7 +442,7 @@ function diveCountLabel(phase: ScheduleState['phase'], others: number): string {
 // 定時潜航の入口（ランディングの既定画面）
 function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, weeklyDivers, notifyToggle, onJoin, onSolo, isLeaving }: {
   schedule: ScheduleState
-  weather: { windSpeed: number, temp: number } | null
+  weather: { windSpeed: number, temp: number, word: string | null } | null
   othersDiving: number
   othersWaiting: number
   weeklyDivers: number | null
@@ -497,7 +465,12 @@ function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, we
             {schedule.port.label}
           </div>
           <div style={{ fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.12em', opacity: 0.65, height: 14 }}>
-            {weather ? `風 ${weather.windSpeed.toFixed(1)} m/s · ${weather.temp.toFixed(1)}°C` : '海面の天気を受信中...'}
+            {weather ? (
+              <>
+                {weather.word ? <span className="font-mincho sea-word">{weather.word}</span> : null}
+                {`風 ${weather.windSpeed.toFixed(1)} m/s · ${weather.temp.toFixed(1)}°C`}
+              </>
+            ) : '海面の天気を受信中...'}
           </div>
 
           <div className="scheduled-status">
@@ -819,23 +792,13 @@ function NotifyToggle({ state, onEnable, onDisable }: {
   )
 }
 
-function VolumeControl({ volume, muted, onChange, onToggleMute }: {
-  volume: number
+// 音量は端末の音量ボタン・キーで変える。画面には、すぐ音を消せるボタンだけを置く
+function MuteControl({ muted, onToggleMute }: {
   muted: boolean
-  onChange: (value: number) => void
   onToggleMute: () => void
 }) {
   return (
-    <div className="volume-control">
-      <span aria-hidden="true" className="font-mincho">音量</span>
-      <input
-        type="range"
-        min="0" max="1" step="0.01"
-        value={muted ? 0 : volume}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="volume-slider"
-        aria-label="音量"
-      />
+    <div className="mute-control">
       <button
         type="button"
         className="hud-btn"
@@ -872,7 +835,6 @@ export function FathomApp() {
 
   const [elapsedMs, setElapsedMs] = useState(0)
   const [showClock, setShowClock] = useState(true)
-  const [volume, setVolumeState] = useState(DEFAULT_MASTER_VOLUME)
   const [muted, setMuted] = useState(false)
 
   // 定時潜航
@@ -914,6 +876,12 @@ export function FathomApp() {
     return { city: data.city, windSpeed, rainAmount, clouds, temp: data.temp, description: data.description } as Record<string, unknown>
   }, [clouds, data, rainAmount, windSpeed])
 
+  // いまの海をひとことで（音と同じ基準）。取得できないときに初期値の天気を言葉にしない
+  const seaNow = useMemo(() => {
+    if (!data || data.temp == null) return null
+    return seaCondition({ windSpeed, rainAmount, snowAmount, clouds, temp: data.temp })
+  }, [clouds, data, rainAmount, snowAmount, windSpeed])
+
   // 定時潜航中の進み具合 0..1（音の流れと、頭上の海面の光に使う）
   const scheduledDiveFraction = fathomMode === 'scheduled' && hasDescended && sessionPhase === 'diving' && schedule.phase === 'diving'
     ? schedule.elapsedInPhase / SCHEDULED_DIVE_MS
@@ -953,23 +921,20 @@ export function FathomApp() {
 
   const driftElapsedRef = useRef(0)
 
-  // 表示設定（時計・音量）を復元
+  const { setVolume, applySpatial } = audio
+
+  // 表示設定（時計・音）を復元。以前の音量のつまみで下げた値は、戻す手段がないので使わない
   useEffect(() => {
     if (readPref(CLOCK_PREF_KEY) === 'hidden') setShowClock(false)
-    const storedVolume = parseFloat(readPref(VOLUME_PREF_KEY) ?? '')
-    if (Number.isFinite(storedVolume)) setVolumeState(Math.max(0, Math.min(1, storedVolume)))
+    // 音は立体音だけ。聞き比べたいときは URL に ?sound=classic を付けると、今までの音で開ける
+    if (new URLSearchParams(window.location.search).get('sound') === 'classic') applySpatial(false)
+    // 音の部品を作る前に一度だけ読む
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const { setVolume } = audio
   useEffect(() => {
-    setVolume(muted ? 0 : volume)
-  }, [muted, setVolume, volume])
-
-  const handleVolumeChange = useCallback((value: number) => {
-    setVolumeState(value)
-    setMuted(false)
-    writePref(VOLUME_PREF_KEY, String(value))
-  }, [])
+    setVolume(muted ? 0 : DEFAULT_MASTER_VOLUME)
+  }, [muted, setVolume])
 
   const toggleClock = useCallback(() => {
     setShowClock(prev => {
@@ -1069,16 +1034,16 @@ export function FathomApp() {
     if (announcedPhaseRef.current === sessionPhase) return
     announcedPhaseRef.current = sessionPhase
     if (sessionPhase === 'interval') {
-      audio.triggerFrictionImpulse({ intensity: 0.6, durationMs: 300, color: 0.1 })
+      audio.triggerSurfacing()
       triggerResonance(0.8)
       if (fathomMode === 'scheduled') setLastDiveCount(maxDiversRef.current)
     } else if (sessionPhase === 'diving' && fathomMode === 'scheduled') {
       // 次の定時潜航が始まった合図（全員同時に鳴る）
       maxDiversRef.current = 1
-      audio.triggerFrictionImpulse({ intensity: 0.5, durationMs: 400, color: 0.3 })
+      audio.triggerSubmerge()
       triggerResonance(0.5)
     } else if (sessionPhase === 'completed' && fathomMode !== 'sleep') {
-      audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 500, color: 0.5 })
+      audio.triggerSurfacing()
       triggerResonance(0.4)
     }
   }, [sessionPhase, audio, triggerResonance, fathomMode])
@@ -1089,7 +1054,7 @@ export function FathomApp() {
     setSessionPhase('diving')
     setElapsedMs(0)
     setProgress(0.18)
-    audio.triggerFrictionImpulse({ intensity: 0.4, durationMs: 150, color: 0.8 })
+    audio.triggerSubmerge()
     triggerResonance(0.3)
   }, [audio, triggerResonance])
 
@@ -1178,7 +1143,7 @@ export function FathomApp() {
       modeLabel: MODE_LABELS[fathomMode],
       portLabel: start.portLabel,
       portName: start.portName,
-      weather: data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp } : null,
+      weather: data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp, word: seaNow?.word ?? null } : null,
       companions: fathomMode === 'scheduled' ? maxDiversRef.current : 1,
       sunk: sunkCountRef.current,
     })
@@ -1336,7 +1301,7 @@ export function FathomApp() {
     setScheduledWaiting(false)
     setHasDescended(true)
     beginDescent()
-    audio.triggerFrictionImpulse({ intensity: 0.5, durationMs: 400, color: 0.3 })
+    audio.triggerSubmerge()
     triggerResonance(0.5)
   }, [audio, beginDescent, schedule.phase, scheduledWaiting, triggerResonance])
 
@@ -1429,7 +1394,7 @@ export function FathomApp() {
       {beaconMounted && landingView === 'scheduled' ? (
         <ScheduledDiveStage
           schedule={schedule}
-          weather={data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp } : null}
+          weather={data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp, word: seaNow?.word ?? null } : null}
           othersDiving={presenceByStatus.diving ?? 0}
           othersWaiting={presenceByStatus.waiting ?? 0}
           weeklyDivers={diveStats.divers7d}
@@ -1462,8 +1427,17 @@ export function FathomApp() {
         
         {hasDescended && !settled ? (
           <div className="surface-panel" style={{ opacity: phase === 'descending' ? 0.8 : 0, transition: 'opacity 3s ease' }}>
+            {/* 潜り始めに、いま聞こえている海面の音が何なのかを伝える */}
             <p className="font-mincho surface-panel-text" style={{ color: 'rgba(255,255,255,0.85)' }}>
-              都市のノイズを抜け、至高の孤独へ。<br/>残るのは思考のゆらぎと、遠き共鳴だけ。
+              {seaNow ? (
+                <>
+                  {currentPortLabel ? `${shortPlaceName(currentPortLabel)}は、いま${seaNow.word}。` : `海は、いま${seaNow.word}。`}
+                  <br/>
+                  {seaNow.audible ? 'その音が、潜るほど遠くなっていく。' : '静かな水面から、ゆっくり沈んでいく。'}
+                </>
+              ) : (
+                <>水面の音が、少しずつ遠くなる。<br/>ここから、深いところへ。</>
+              )}
             </p>
             <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>descending — {Math.round(descent * 100)}%</div>
           </div>
@@ -1481,7 +1455,7 @@ export function FathomApp() {
               {waitersNow > 1 ? `ほかに ${waitersNow - 1}人が水面で待っています` : 'まだ誰もいない水面。最初のひとりです。'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 28 }}>
-              <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} />
+              <MuteControl muted={muted} onToggleMute={() => setMuted(prev => !prev)} />
             </div>
             <div style={{ marginTop: 8 }}>{notifyToggle}</div>
           </div>
@@ -1576,6 +1550,7 @@ export function FathomApp() {
               {/* 取得できないときに初期値を「いまの天気」として見せない */}
               {data?.temp != null ? (
                 <div style={{ fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.12em', opacity: 0.6, marginBottom: 10 }}>
+                  {seaNow ? <span className="font-mincho sea-word">{seaNow.word}</span> : null}
                   風 {data.windSpeed.toFixed(1)} m/s · {data.temp.toFixed(1)}°C
                 </div>
               ) : null}
@@ -1609,7 +1584,7 @@ export function FathomApp() {
                   灯りを長押し：深呼吸
                 </div>
               ) : null}
-              <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} />
+              <MuteControl muted={muted} onToggleMute={() => setMuted(prev => !prev)} />
               <div style={{ display: 'flex', gap: 24 }}>
                 {!audio.running ? (
                   <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ 再開 ]</button>
