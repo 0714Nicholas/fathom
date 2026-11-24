@@ -338,6 +338,7 @@ const hudStyles = `
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
     .hud-btn.hud-clock { padding: 0; font-size: 12px; }
     .volume-slider { --volume-length: 72px; }
+    .sink-input { width: 100%; max-width: 420px; }
   }
 
   /* 高さが足りない画面では、余白と文字を詰めて収める */
@@ -372,6 +373,13 @@ const hudStyles = `
     .surface-panel, .surface-panel.is-lower { top: 52%; }
     .surface-panel-text { font-size: 13px; line-height: 1.8; }
     .interval-hint { margin-bottom: 2px; }
+  }
+
+  /* スマホ・タブレット：入力欄の文字が 16px 未満だと、iPhone が入力のたびに画面を拡大して戻さない。
+     音量は本体のボタンで変えられるので、つまみは出さない */
+  @media (pointer: coarse) {
+    .sink-input { font-size: 16px; letter-spacing: 0.02em; }
+    .volume-slider, .volume-label { display: none; }
   }
 `
 
@@ -827,7 +835,7 @@ function VolumeControl({ volume, muted, onChange, onToggleMute }: {
 }) {
   return (
     <div className="volume-control">
-      <span aria-hidden="true" className="font-mincho">音量</span>
+      <span aria-hidden="true" className="font-mincho volume-label">音量</span>
       <input
         type="range"
         min="0" max="1" step="0.01"
@@ -956,6 +964,8 @@ export function FathomApp() {
   // 表示設定（時計・音量）を復元
   useEffect(() => {
     if (readPref(CLOCK_PREF_KEY) === 'hidden') setShowClock(false)
+    // スマホでは音量のつまみを出さないので、以前に下げた音量が戻せなくならないよう復元しない
+    if (window.matchMedia?.('(pointer: coarse)').matches) return
     const storedVolume = parseFloat(readPref(VOLUME_PREF_KEY) ?? '')
     if (Number.isFinite(storedVolume)) setVolumeState(Math.max(0, Math.min(1, storedVolume)))
   }, [])
