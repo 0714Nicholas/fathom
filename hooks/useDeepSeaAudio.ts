@@ -141,6 +141,8 @@ export function useDeepSeaAudio(opts: {
   diveFraction?: number | null
   /** 立体音（イヤホン向け）で始めるか。途中で切り替えるときは applySpatial を使う */
   spatial?: boolean
+  /** 鯨や泡など、海の生き物の音を鳴らすか（初期値は鳴らす）。試聴で「海らしさ」を外して聞き比べるときに false にする */
+  creatures?: boolean
 }) {
   const focusMix = Boolean(opts.focusMix)
   const diveFraction = opts.diveFraction ?? null
@@ -151,6 +153,8 @@ export function useDeepSeaAudio(opts: {
   progressRef.current = opts.progress
   const focusRef = useRef({ focusMix, diveFraction })
   focusRef.current = { focusMix, diveFraction }
+  const creaturesRef = useRef(opts.creatures ?? true)
+  creaturesRef.current = opts.creatures ?? true
 
   const knobs = useMemo(() => weatherToSound({
     windSpeed: opts.windSpeed,
@@ -809,7 +813,7 @@ export function useDeepSeaAudio(opts: {
       const level = isFocus ? 0.45 : 1
       const chance = isFocus ? 1 : (isDeep ? 0.4 : 0.7)
 
-      if (quiet || Math.random() >= chance) {
+      if (quiet || !creaturesRef.current || Math.random() >= chance) {
         timeoutId = window.setTimeout(scheduleEcosystem, nextDelay())
         return
       }
