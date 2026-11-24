@@ -8,6 +8,7 @@ import {
   type ResonancePulsePayload,
 } from '@/hooks/useRealtimeLetters'
 import { useWeather } from '@/hooks/useWeather'
+import { seaCondition, shortPlaceName } from '@/lib/weather/seaCondition'
 import { makeCrystalIdentity } from '@/lib/identity/crystalSeed'
 import { useFathomDescent } from '@/hooks/useFathomDescent'
 import { useFathomMemory } from '@/hooks/useFathomMemory'
@@ -264,7 +265,7 @@ const hudStyles = `
     text-align: center; width: 100%;
   }
   .surface-panel.is-lower { top: 42%; }
-  .surface-panel-text { font-size: 15px; line-height: 2.6; }
+  .surface-panel-text { font-size: 15px; line-height: 2.6; text-wrap: balance; }
   .interval-hint { margin-bottom: 24px; }
 
   /* 毎日の潜航通知の設定 */
@@ -327,11 +328,14 @@ const hudStyles = `
     filter: drop-shadow(0 0 4px rgba(143, 216, 255, 0.6));
   }
 
+  /* 天気の数字の前に置く「いまの海」のひとこと（吹雪・凪など） */
+  .sea-word { font-size: 11px; color: rgba(235, 245, 252, 1); margin-right: 0.9em; }
+
   @media (max-width: 768px) {
     .fathom-logo { font-size: 14px; top: 16px; }
     .landing-stage { padding-top: 48px; }
     .landing-intro { font-size: 13px; }
-    .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 45vw; }
+    .hud-top-right { top: 60px; right: 16px; font-size: 8px; max-width: 70vw; }
     .hud-bottom-left { bottom: 130px; left: 16px; font-size: 8px; max-width: 45vw; }
     .hud-bottom-center { bottom: 16px; padding: 0 16px; max-width: 100vw; width: 100%; }
     .hud-bottom-right { bottom: 130px; right: 16px; font-size: 8px; max-width: 45vw; }
@@ -482,7 +486,7 @@ function diveCountLabel(phase: ScheduleState['phase'], others: number): string {
 // 定時潜航の入口（ランディングの既定画面）
 function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, weeklyDivers, notifyToggle, onJoin, onSolo, isLeaving }: {
   schedule: ScheduleState
-  weather: { windSpeed: number, temp: number } | null
+  weather: { windSpeed: number, temp: number, word: string | null } | null
   othersDiving: number
   othersWaiting: number
   weeklyDivers: number | null
@@ -505,7 +509,12 @@ function ScheduledDiveStage({ schedule, weather, othersDiving, othersWaiting, we
             {schedule.port.label}
           </div>
           <div style={{ fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.12em', opacity: 0.65, height: 14 }}>
-            {weather ? `風 ${weather.windSpeed.toFixed(1)} m/s · ${weather.temp.toFixed(1)}°C` : '海面の天気を受信中...'}
+            {weather ? (
+              <>
+                {weather.word ? <span className="font-mincho sea-word">{weather.word}</span> : null}
+                {`風 ${weather.windSpeed.toFixed(1)} m/s · ${weather.temp.toFixed(1)}°C`}
+              </>
+            ) : '海面の天気を受信中...'}
           </div>
 
           <div className="scheduled-status">
@@ -922,6 +931,12 @@ export function FathomApp() {
     return { city: data.city, windSpeed, rainAmount, clouds, temp: data.temp, description: data.description } as Record<string, unknown>
   }, [clouds, data, rainAmount, windSpeed])
 
+  // いまの海をひとことで（音と同じ基準）。取得できないときに初期値の天気を言葉にしない
+  const seaNow = useMemo(() => {
+    if (!data || data.temp == null) return null
+    return seaCondition({ windSpeed, rainAmount, snowAmount, clouds, temp: data.temp })
+  }, [clouds, data, rainAmount, snowAmount, windSpeed])
+
   // 定時潜航中の進み具合 0..1（音の流れと、頭上の海面の光に使う）
   const scheduledDiveFraction = fathomMode === 'scheduled' && hasDescended && sessionPhase === 'diving' && schedule.phase === 'diving'
     ? schedule.elapsedInPhase / SCHEDULED_DIVE_MS
@@ -1188,7 +1203,7 @@ export function FathomApp() {
       modeLabel: MODE_LABELS[fathomMode],
       portLabel: start.portLabel,
       portName: start.portName,
-      weather: data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp } : null,
+      weather: data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp, word: seaNow?.word ?? null } : null,
       companions: fathomMode === 'scheduled' ? maxDiversRef.current : 1,
       sunk: sunkCountRef.current,
     })
@@ -1439,7 +1454,7 @@ export function FathomApp() {
       {beaconMounted && landingView === 'scheduled' ? (
         <ScheduledDiveStage
           schedule={schedule}
-          weather={data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp } : null}
+          weather={data && data.temp != null ? { windSpeed: data.windSpeed, temp: data.temp, word: seaNow?.word ?? null } : null}
           othersDiving={presenceByStatus.diving ?? 0}
           othersWaiting={presenceByStatus.waiting ?? 0}
           weeklyDivers={diveStats.divers7d}
@@ -1472,8 +1487,17 @@ export function FathomApp() {
         
         {hasDescended && !settled ? (
           <div className="surface-panel" style={{ opacity: phase === 'descending' ? 0.8 : 0, transition: 'opacity 3s ease' }}>
+            {/* 潜り始めに、いま聞こえている海面の音が何なのかを伝える */}
             <p className="font-mincho surface-panel-text" style={{ color: 'rgba(255,255,255,0.85)' }}>
-              都市のノイズを抜け、至高の孤独へ。<br/>残るのは思考のゆらぎと、遠き共鳴だけ。
+              {seaNow ? (
+                <>
+                  {currentPortLabel ? `${shortPlaceName(currentPortLabel)}は、いま${seaNow.word}。` : `海は、いま${seaNow.word}。`}
+                  <br/>
+                  {seaNow.audible ? 'その音が、潜るほど遠くなっていく。' : '静かな水面から、ゆっくり沈んでいく。'}
+                </>
+              ) : (
+                <>水面の音が、少しずつ遠くなる。<br/>ここから、深いところへ。</>
+              )}
             </p>
             <div style={{ marginTop: 24, opacity: 0.5, letterSpacing: '0.1em', fontSize: 11, fontFamily: 'monospace' }}>descending — {Math.round(descent * 100)}%</div>
           </div>
@@ -1586,6 +1610,7 @@ export function FathomApp() {
               {/* 取得できないときに初期値を「いまの天気」として見せない */}
               {data?.temp != null ? (
                 <div style={{ fontFamily: 'monospace', fontSize: 10, letterSpacing: '0.12em', opacity: 0.6, marginBottom: 10 }}>
+                  {seaNow ? <span className="font-mincho sea-word">{seaNow.word}</span> : null}
                   風 {data.windSpeed.toFixed(1)} m/s · {data.temp.toFixed(1)}°C
                 </div>
               ) : null}

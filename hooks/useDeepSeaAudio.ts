@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { pauseBackgroundPlayback, restoreBackgroundPlayback, startBackgroundPlayback } from '@/lib/audio/backgroundPlayback'
+import { weatherToSound } from '@/lib/weather/seaCondition'
 
 export const DEFAULT_MASTER_VOLUME = 0.8
 
@@ -10,25 +11,6 @@ const LIMITER_TRIM = 0.82
 const NOISE_LOOP_SEC = 23
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
-
-export type WeatherInput = {
-  windSpeed: number   // m/s
-  rainAmount: number  // mm/h
-  snowAmount: number  // mm/h
-  clouds: number      // 0..100 %
-  temp: number        // °C
-}
-
-// 天気を 0..1 の「音のつまみ」に変換する
-export function weatherToSound(w: WeatherInput) {
-  return {
-    wind: clamp01(w.windSpeed / 18),                                // 18 m/s（暴風）で最大
-    rain: clamp01(Math.log1p(w.rainAmount) / Math.log1p(10)),       // 10 mm/h（本降り）で最大
-    snow: clamp01(Math.log1p(w.snowAmount * 4) / Math.log1p(8)),    // 2 mm/h で最大
-    overcast: clamp01(w.clouds / 100),
-    cold: clamp01((20 - w.temp) / 40),                              // 20°C 以上で 0、-20°C で 1
-  }
-}
 
 type SoundKnobs = ReturnType<typeof weatherToSound>
 

@@ -4,6 +4,7 @@ import { sendNotification, setVapidDetails, WebPushError } from 'web-push'
 import { portForTime } from '@/lib/schedule/diveSchedule'
 import { PUSH_PUBLIC_KEY, REMIND_LEAD_MINUTES } from '@/lib/push/shared'
 import { SITE_URL } from '@/lib/site'
+import { seaCondition, shortPlaceName } from '@/lib/weather/seaCondition'
 
 // API ルート専用。service_role の鍵を使うので、ブラウザ側から import しない
 
@@ -23,7 +24,7 @@ export type PushMessage = {
   tag: string
 }
 
-export type SlotWeather = { windSpeed: number, temp: number | null } | null
+export type SlotWeather = { windSpeed: number, temp: number | null, word: string | null } | null
 
 let admin: SupabaseClient | null = null
 
@@ -93,23 +94,35 @@ export async function fetchSlotWeather(origin: string, query: string): Promise<S
     if (!res.ok) return null
     const json = await res.json()
     if (typeof json.windSpeed !== 'number') return null
-    return { windSpeed: json.windSpeed, temp: typeof json.temp === 'number' ? json.temp : null }
+    const temp = typeof json.temp === 'number' ? json.temp : null
+    // 画面の「スヴァールバルは、いま吹雪。」と同じ言葉にする
+    const word = temp == null ? null : seaCondition({
+      windSpeed: json.windSpeed,
+      rainAmount: (Number(json.rain1h) || 0) + (Number(json.rain3h) || 0),
+      snowAmount: Number(json.snow1h) || 0,
+      clouds: Number(json.clouds) || 0,
+      temp,
+    }).word
+    return { windSpeed: json.windSpeed, temp, word }
   } catch {
     return null
   }
 }
 
+// 例：「スヴァールバルは、いま吹雪。風 12.1 m/s・-9.8°C」
 function seaText(slotMs: number, weather: SlotWeather): string {
   const port = portForTime(slotMs)
-  if (!weather) return port.label
+  if (!weather) return `今日の海は ${port.label}`
   const temp = weather.temp != null ? `・${weather.temp.toFixed(1)}°C` : ''
-  return `${port.label}。風 ${weather.windSpeed.toFixed(1)} m/s${temp}`
+  const numbers = `風 ${weather.windSpeed.toFixed(1)} m/s${temp}`
+  if (weather.word) return `${shortPlaceName(port.label)}は、いま${weather.word}。${numbers}`
+  return `今日の海は ${port.label}。${numbers}`
 }
 
 export function reminderMessage(slotMs: number, timeZone: string, weather: SlotWeather): PushMessage {
   return {
     title: `${clockIn(slotMs, timeZone)} の潜航まであと${REMIND_LEAD_MINUTES}分`,
-    body: `今日の海は ${seaText(slotMs, weather)}`,
+    body: seaText(slotMs, weather),
     url: '/?from=push',
     tag: 'minasoko-reminder',
   }
@@ -118,7 +131,7 @@ export function reminderMessage(slotMs: number, timeZone: string, weather: SlotW
 export function testMessage(slotMs: number, timeZone: string, weather: SlotWeather): PushMessage {
   return {
     title: '通知を受け取れます',
-    body: `次の潜航 ${clockIn(slotMs, timeZone)} の海は ${seaText(slotMs, weather)}`,
+    body: `次の潜航は ${clockIn(slotMs, timeZone)}。${seaText(slotMs, weather)}`,
     url: '/?from=push',
     tag: 'minasoko-test',
   }
