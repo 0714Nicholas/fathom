@@ -49,6 +49,8 @@ const SLEEP_MS = 60 * 60 * 1000
 
 const CLOCK_PREF_KEY = 'fathom:show-clock'
 const VOLUME_PREF_KEY = 'fathom:volume'
+// 'spatial'（立体音、初期値）か 'classic'（今までの音）
+const SOUND_PREF_KEY = 'fathom:sound'
 
 function remainingSessionMs(mode: FathomMode, elapsedMs: number): number {
   if (mode === 'scheduled') return getScheduleState().remainingInPhase
@@ -836,11 +838,13 @@ function NotifyToggle({ state, onEnable, onDisable }: {
   )
 }
 
-function VolumeControl({ volume, muted, onChange, onToggleMute }: {
+function VolumeControl({ volume, muted, onChange, onToggleMute, spatial, onToggleSpatial }: {
   volume: number
   muted: boolean
   onChange: (value: number) => void
   onToggleMute: () => void
+  spatial: boolean
+  onToggleSpatial: () => void
 }) {
   return (
     <div className="volume-control">
@@ -861,6 +865,17 @@ function VolumeControl({ volume, muted, onChange, onToggleMute }: {
         aria-pressed={muted}
       >
         <span className="font-mincho">{muted ? '[ 消音中 ]' : '[ 消音 ]'}</span>
+      </button>
+      {/* 今までの音と聞き比べるための切り替え。イヤホンで聞くと、水面が上に、深いところが下に聞こえる */}
+      <button
+        type="button"
+        className="hud-btn"
+        style={{ padding: 0 }}
+        onClick={onToggleSpatial}
+        aria-pressed={spatial}
+        title="イヤホンで聞くと、水面が上に、深いところが下に聞こえます"
+      >
+        <span className="font-mincho">{spatial ? '[ 立体音：オン ]' : '[ 立体音：オフ ]'}</span>
       </button>
     </div>
   )
@@ -891,6 +906,7 @@ export function FathomApp() {
   const [showClock, setShowClock] = useState(true)
   const [volume, setVolumeState] = useState(DEFAULT_MASTER_VOLUME)
   const [muted, setMuted] = useState(false)
+  const [spatialSound, setSpatialSound] = useState(true)
 
   // 定時潜航
   const [landingView, setLandingView] = useState<'scheduled' | 'solo'>('scheduled')
@@ -976,16 +992,31 @@ export function FathomApp() {
 
   const driftElapsedRef = useRef(0)
 
-  // 表示設定（時計・音量）を復元
+  const { setVolume, applySpatial } = audio
+
+  // 表示設定（時計・音・音量）を復元
   useEffect(() => {
     if (readPref(CLOCK_PREF_KEY) === 'hidden') setShowClock(false)
+    if (readPref(SOUND_PREF_KEY) === 'classic') {
+      setSpatialSound(false)
+      applySpatial(false)
+    }
     // スマホでは音量のつまみを出さないので、以前に下げた音量が戻せなくならないよう復元しない
     if (window.matchMedia?.('(pointer: coarse)').matches) return
     const storedVolume = parseFloat(readPref(VOLUME_PREF_KEY) ?? '')
     if (Number.isFinite(storedVolume)) setVolumeState(Math.max(0, Math.min(1, storedVolume)))
+    // 音の部品を作る前に一度だけ読む
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const { setVolume } = audio
+  // タップの処理の中で切り替える（iPhone では、タップの外で音を作り直すと鳴らなくなる）
+  const toggleSpatialSound = useCallback(() => {
+    const next = !spatialSound
+    setSpatialSound(next)
+    applySpatial(next)
+    writePref(SOUND_PREF_KEY, next ? 'spatial' : 'classic')
+  }, [applySpatial, spatialSound])
+
   useEffect(() => {
     setVolume(muted ? 0 : volume)
   }, [muted, setVolume, volume])
@@ -1515,7 +1546,7 @@ export function FathomApp() {
               {waitersNow > 1 ? `ほかに ${waitersNow - 1}人が水面で待っています` : 'まだ誰もいない水面。最初のひとりです。'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 28 }}>
-              <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} />
+              <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} spatial={spatialSound} onToggleSpatial={toggleSpatialSound} />
             </div>
             <div style={{ marginTop: 8 }}>{notifyToggle}</div>
           </div>
@@ -1644,7 +1675,7 @@ export function FathomApp() {
                   灯りを長押し：深呼吸
                 </div>
               ) : null}
-              <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} />
+              <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} spatial={spatialSound} onToggleSpatial={toggleSpatialSound} />
               <div style={{ display: 'flex', gap: 24 }}>
                 {!audio.running ? (
                   <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ 再開 ]</button>
