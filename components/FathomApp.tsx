@@ -48,7 +48,6 @@ const FOCUS_MS = 90 * 60 * 1000
 const SLEEP_MS = 60 * 60 * 1000
 
 const CLOCK_PREF_KEY = 'fathom:show-clock'
-const VOLUME_PREF_KEY = 'fathom:volume'
 
 function remainingSessionMs(mode: FathomMode, elapsedMs: number): number {
   if (mode === 'scheduled') return getScheduleState().remainingInPhase
@@ -286,47 +285,7 @@ const hudStyles = `
     color: rgba(255, 255, 255, 0.85);
   }
 
-  .volume-control {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
-    font-family: monospace; font-size: 10px; letter-spacing: 0.2em;
-    color: rgba(255, 255, 255, 0.4);
-  }
-  /* 線とつまみの見た目は細いまま、触れる範囲だけ広げる。
-     マイナスの margin で配置を変えず、線の長さをつまみの幅ぶん余らせて移動幅も保つ */
-  .volume-slider {
-    --volume-length: 96px;
-    -webkit-appearance: none;
-    appearance: none;
-    width: calc(var(--volume-length) + 24px);
-    height: 36px;
-    margin: -18px -12px;
-    background: linear-gradient(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.2)) center / var(--volume-length) 1px no-repeat;
-    outline: none;
-    cursor: pointer;
-  }
-  .volume-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    box-sizing: border-box;
-    width: 24px;
-    height: 36px;
-    border: 11px solid transparent;
-    background: #8fd8ff;
-    background-clip: padding-box;
-    filter: drop-shadow(0 0 4px rgba(143, 216, 255, 0.6));
-  }
-  .volume-slider::-moz-range-track {
-    background: transparent;
-  }
-  .volume-slider::-moz-range-thumb {
-    box-sizing: border-box;
-    width: 24px;
-    height: 36px;
-    border: 11px solid transparent;
-    border-radius: 0;
-    background: #8fd8ff;
-    background-clip: padding-box;
-    filter: drop-shadow(0 0 4px rgba(143, 216, 255, 0.6));
-  }
+  .mute-control { display: flex; align-items: center; margin-bottom: 12px; }
 
   /* 天気の数字の前に置く「いまの海」のひとこと（吹雪・凪など） */
   .sea-word { font-size: 11px; color: rgba(235, 245, 252, 1); margin-right: 0.9em; }
@@ -341,7 +300,6 @@ const hudStyles = `
     .hud-bottom-right { bottom: 130px; right: 16px; font-size: 8px; max-width: 45vw; }
     .hud-btn { padding: 4px; font-size: 9px; letter-spacing: 0.1em; }
     .hud-btn.hud-clock { padding: 0; font-size: 12px; }
-    .volume-slider { --volume-length: 72px; }
     .sink-input { width: 100%; max-width: 420px; }
   }
 
@@ -379,11 +337,9 @@ const hudStyles = `
     .interval-hint { margin-bottom: 2px; }
   }
 
-  /* スマホ・タブレット：入力欄の文字が 16px 未満だと、iPhone が入力のたびに画面を拡大して戻さない。
-     音量は本体のボタンで変えられるので、つまみは出さない */
+  /* スマホ・タブレット：入力欄の文字が 16px 未満だと、iPhone が入力のたびに画面を拡大して戻さない */
   @media (pointer: coarse) {
     .sink-input { font-size: 16px; letter-spacing: 0.02em; }
-    .volume-slider, .volume-label { display: none; }
   }
 `
 
@@ -836,23 +792,13 @@ function NotifyToggle({ state, onEnable, onDisable }: {
   )
 }
 
-function VolumeControl({ volume, muted, onChange, onToggleMute }: {
-  volume: number
+// 音量は端末の音量ボタン・キーで変える。画面には、すぐ音を消せるボタンだけを置く
+function MuteControl({ muted, onToggleMute }: {
   muted: boolean
-  onChange: (value: number) => void
   onToggleMute: () => void
 }) {
   return (
-    <div className="volume-control">
-      <span aria-hidden="true" className="font-mincho volume-label">音量</span>
-      <input
-        type="range"
-        min="0" max="1" step="0.01"
-        value={muted ? 0 : volume}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="volume-slider"
-        aria-label="音量"
-      />
+    <div className="mute-control">
       <button
         type="button"
         className="hud-btn"
@@ -889,7 +835,6 @@ export function FathomApp() {
 
   const [elapsedMs, setElapsedMs] = useState(0)
   const [showClock, setShowClock] = useState(true)
-  const [volume, setVolumeState] = useState(DEFAULT_MASTER_VOLUME)
   const [muted, setMuted] = useState(false)
 
   // 定時潜航
@@ -978,28 +923,18 @@ export function FathomApp() {
 
   const { setVolume, applySpatial } = audio
 
-  // 表示設定（時計・音・音量）を復元
+  // 表示設定（時計・音）を復元。以前の音量のつまみで下げた値は、戻す手段がないので使わない
   useEffect(() => {
     if (readPref(CLOCK_PREF_KEY) === 'hidden') setShowClock(false)
     // 音は立体音だけ。聞き比べたいときは URL に ?sound=classic を付けると、今までの音で開ける
     if (new URLSearchParams(window.location.search).get('sound') === 'classic') applySpatial(false)
-    // スマホでは音量のつまみを出さないので、以前に下げた音量が戻せなくならないよう復元しない
-    if (window.matchMedia?.('(pointer: coarse)').matches) return
-    const storedVolume = parseFloat(readPref(VOLUME_PREF_KEY) ?? '')
-    if (Number.isFinite(storedVolume)) setVolumeState(Math.max(0, Math.min(1, storedVolume)))
     // 音の部品を作る前に一度だけ読む
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    setVolume(muted ? 0 : volume)
-  }, [muted, setVolume, volume])
-
-  const handleVolumeChange = useCallback((value: number) => {
-    setVolumeState(value)
-    setMuted(false)
-    writePref(VOLUME_PREF_KEY, String(value))
-  }, [])
+    setVolume(muted ? 0 : DEFAULT_MASTER_VOLUME)
+  }, [muted, setVolume])
 
   const toggleClock = useCallback(() => {
     setShowClock(prev => {
@@ -1520,7 +1455,7 @@ export function FathomApp() {
               {waitersNow > 1 ? `ほかに ${waitersNow - 1}人が水面で待っています` : 'まだ誰もいない水面。最初のひとりです。'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 28 }}>
-              <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} />
+              <MuteControl muted={muted} onToggleMute={() => setMuted(prev => !prev)} />
             </div>
             <div style={{ marginTop: 8 }}>{notifyToggle}</div>
           </div>
@@ -1649,7 +1584,7 @@ export function FathomApp() {
                   灯りを長押し：深呼吸
                 </div>
               ) : null}
-              <VolumeControl volume={volume} muted={muted} onChange={handleVolumeChange} onToggleMute={() => setMuted(prev => !prev)} />
+              <MuteControl muted={muted} onToggleMute={() => setMuted(prev => !prev)} />
               <div style={{ display: 'flex', gap: 24 }}>
                 {!audio.running ? (
                   <button className="hud-btn" onClick={() => { beginDescent(); void audio.resume(); triggerResonance(0.18) }}>[ 再開 ]</button>
